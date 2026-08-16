@@ -2,213 +2,911 @@
   box-sizing: border-box;
 }
 
-body {
+html,
+body,
+#root {
   margin: 0;
+  width: 100%;
+  min-height: 100%;
 }
+
+body {
+  font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  background: #f7fafc;
+}
+
+/* ================================
+   MAIN
+================================ */
 
 .split-page {
-  min-height: 100vh;
+  width: 100%;
+  height: 100vh;
+  min-height: 620px;
+
   display: flex;
-  font-family: "Segoe UI", Arial, sans-serif;
+
+  overflow: hidden;
+
+  background: #f8fafc;
 }
 
-/* ---------- Left illustrated panel ---------- */
+/* ================================
+   LEFT PANEL
+================================ */
 
 .split-visual {
-  flex: 1;
-  background: #1F4E78;
-  display: none;
+  position: relative;
+
+  width: 52%;
+  height: 100vh;
+
+  display: flex;
   flex-direction: column;
+
+  padding: 28px 55px;
+
+  overflow: hidden;
+
+  color: white;
+
+  background:
+    radial-gradient(
+      circle at 85% 15%,
+      rgba(39, 194, 255, 0.22),
+      transparent 32%
+    ),
+    radial-gradient(
+      circle at 10% 90%,
+      rgba(22, 140, 255, 0.16),
+      transparent 30%
+    ),
+    linear-gradient(
+      145deg,
+      #071827 0%,
+      #0b2d4a 55%,
+      #104e74 100%
+    );
+}
+
+/* Decorative rings */
+
+.split-visual::before {
+  content: "";
+
+  position: absolute;
+
+  width: 500px;
+  height: 500px;
+
+  right: -270px;
+  bottom: -260px;
+
+  border-radius: 50%;
+
+  border: 1px solid rgba(255, 255, 255, 0.08);
+
+  box-shadow:
+    0 0 0 70px rgba(255, 255, 255, 0.025),
+    0 0 0 140px rgba(255, 255, 255, 0.015);
+
+  pointer-events: none;
+}
+
+.split-visual::after {
+  content: "";
+
+  position: absolute;
+
+  width: 300px;
+  height: 300px;
+
+  left: -200px;
+  top: -190px;
+
+  border-radius: 50%;
+
+  border: 1px solid rgba(39, 194, 255, 0.12);
+
+  pointer-events: none;
+}
+
+/* ================================
+   BRAND
+================================ */
+
+.brand {
+  position: relative;
+  z-index: 5;
+
+  display: flex;
+  align-items: center;
+
+  gap: 11px;
+
+  flex-shrink: 0;
+}
+
+.brand-logo {
+  width: 44px;
+  height: 44px;
+
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 3rem;
-  color: #ffffff;
+
+  border-radius: 14px;
+
+  background: rgba(255, 255, 255, 0.08);
+
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.brand-name {
+  font-size: 25px;
+  font-weight: 800;
+
+  letter-spacing: -1px;
+}
+
+.brand-name span {
+  color: #27c2ff;
+}
+
+/* ================================
+   LEFT CONTENT
+================================ */
+
+.visual-content {
   position: relative;
-  overflow: hidden;
+  z-index: 3;
+
+  width: 100%;
+  max-width: 600px;
+
+  margin: auto 0;
 }
 
-@media (min-width: 800px) {
-  .split-visual {
-    display: flex;
-  }
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 8px 14px;
+
+  border-radius: 50px;
+
+  color: #6bd8ff;
+
+  background: rgba(39, 194, 255, 0.10);
+
+  border: 1px solid rgba(39, 194, 255, 0.28);
+
+  font-size: 10px;
+  font-weight: 800;
+
+  letter-spacing: 1.5px;
 }
 
-.split-visual .brand {
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
-  z-index: 1;
+.hero-badge::before {
+  content: "";
+
+  width: 7px;
+  height: 7px;
+
+  margin-right: 8px;
+
+  border-radius: 50%;
+
+  background: #42d99a;
+
+  box-shadow:
+    0 0 12px rgba(66, 217, 154, 0.8);
 }
 
-.split-visual .tagline {
-  font-size: 1rem;
-  color: #cfe0f0;
-  max-width: 320px;
-  text-align: center;
-  margin-bottom: 2.5rem;
-  z-index: 1;
+/* ================================
+   HERO
+================================ */
+
+.visual-content h1 {
+  margin: 18px 0 14px;
+
+  font-size: clamp(42px, 4.4vw, 58px);
+
+  line-height: 1.02;
+
+  letter-spacing: -3px;
+
+  font-weight: 800;
+}
+
+.visual-content h1 span {
+  color: #27c2ff;
+}
+
+.tagline {
+  max-width: 500px;
+
+  margin: 0;
+
+  color: #c4d7e6;
+
+  font-size: 15px;
+
+  line-height: 1.55;
+}
+
+/* ================================
+   ROUTE ILLUSTRATION
+================================ */
+
+.route-visual {
+  position: relative;
+
+  width: 100%;
+  max-width: 520px;
+
+  height: 175px;
+
+  margin-top: 12px;
 }
 
 .route-illustration {
-  width: 260px;
-  height: 200px;
-  z-index: 1;
+  display: block;
+
+  width: 100%;
+  height: 165px;
+
+  overflow: visible;
 }
 
-/* ---------- Right form panel ---------- */
+/* Route animation */
 
-.split-form-side {
-  flex: 1;
+.route-illustration path {
+  animation: routeGlow 3s ease-in-out infinite;
+}
+
+@keyframes routeGlow {
+  0% {
+    stroke-opacity: 0.35;
+  }
+
+  50% {
+    stroke-opacity: 0.8;
+  }
+
+  100% {
+    stroke-opacity: 0.35;
+  }
+}
+
+/* ================================
+   FEATURES
+================================ */
+
+.hero-features {
+  position: relative;
+  z-index: 5;
+
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
-  padding: 2rem;
+
+  gap: 20px;
+
+  margin-top: 2px;
+}
+
+.hero-feature {
+  display: flex;
+  align-items: center;
+
+  gap: 6px;
+
+  color: #d5e5f0;
+
+  font-size: 11px;
+
+  white-space: nowrap;
+}
+
+.hero-feature span {
+  color: #55dfa1;
+
+  font-weight: 800;
+}
+
+/* ================================
+   LEFT FOOTER
+================================ */
+
+.visual-footer {
+  position: relative;
+  z-index: 5;
+
+  margin-top: auto;
+
+  color: #7896aa;
+
+  font-size: 11px;
+
+  text-align: center;
+}
+
+/* ================================
+   RIGHT SIDE
+================================ */
+
+.split-form-side {
+  width: 48%;
+  height: 100vh;
+
+  display: flex;
+
+  justify-content: center;
+  align-items: center;
+
+  padding: 25px 45px;
+
+  overflow-y: auto;
+
+  background: #f8fafc;
 }
 
 .form-shell {
   width: 100%;
-  max-width: 360px;
+  max-width: 460px;
 }
+
+/* ================================
+   MOBILE BRAND
+================================ */
 
 .mobile-brand {
-  display: block;
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: #1F4E78;
-  margin-bottom: 1.5rem;
-  text-align: center;
+  display: none;
+
+  align-items: center;
+
+  gap: 9px;
+
+  margin-bottom: 25px;
+
+  color: #0b1f33;
+
+  font-size: 22px;
+  font-weight: 800;
 }
 
-@media (min-width: 800px) {
-  .mobile-brand {
-    display: none;
-  }
+.mobile-brand > span > span {
+  color: #168cff;
 }
+
+.mobile-logo {
+  display: flex;
+}
+
+/* ================================
+   LOGIN / REGISTER TABS
+================================ */
 
 .form-toggle {
   display: flex;
-  border-bottom: 1.5px solid #e4e7ec;
-  margin-bottom: 1.75rem;
+
+  gap: 35px;
+
+  margin-bottom: 27px;
+
+  border-bottom: 1px solid #e2e9ef;
 }
 
 .form-toggle button {
-  flex: 1;
+  position: relative;
+
+  padding: 0 3px 13px;
+
   border: none;
+
   background: transparent;
-  padding: 0.7rem 0;
-  font-size: 0.95rem;
-  color: #98a2b3;
+
+  color: #9aa8b5;
+
+  font-size: 14px;
+
+  font-weight: 600;
+
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1.5px;
-  transition: color 0.15s ease, border-color 0.15s ease;
 }
 
 .form-toggle button.active {
-  color: #1F4E78;
-  font-weight: 600;
-  border-bottom: 2px solid #1F4E78;
+  color: #0b2d4a;
+
+  font-weight: 750;
 }
 
-.form-shell h2 {
-  margin: 0 0 0.25rem 0;
-  color: #101828;
-  font-size: 1.35rem;
+.form-toggle button.active::after {
+  content: "";
+
+  position: absolute;
+
+  left: 0;
+  right: 0;
+
+  bottom: -1px;
+
+  height: 2px;
+
+  border-radius: 5px;
+
+  background: #168cff;
 }
 
-.form-shell .subtext {
-  color: #667085;
-  font-size: 0.85rem;
-  margin-bottom: 1.5rem;
+/* ================================
+   LOGIN
+================================ */
+
+.login-content {
+  width: 100%;
 }
+
+.welcome-icon {
+  width: 44px;
+  height: 44px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  margin-bottom: 12px;
+
+  border-radius: 15px;
+
+  color: #168cff;
+
+  background: #eaf7ff;
+
+  border: 1px solid #d8efff;
+}
+
+.login-content h2 {
+  margin: 0;
+
+  color: #10263b;
+
+  font-size: 30px;
+
+  line-height: 1.2;
+
+  letter-spacing: -1.2px;
+
+  font-weight: 800;
+}
+
+.subtext {
+  margin: 7px 0 23px;
+
+  color: #7d8c99;
+
+  font-size: 14px;
+
+  line-height: 1.6;
+}
+
+/* ================================
+   FORM FIELDS
+================================ */
 
 .field {
-  margin-bottom: 1.1rem;
+  margin-bottom: 17px;
 }
 
 .field label {
   display: block;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #344054;
-  margin-bottom: 0.4rem;
+
+  margin-bottom: 8px;
+
+  color: #26394a;
+
+  font-size: 13px;
+
+  font-weight: 650;
 }
 
-.field input,
-.field select {
-  width: 100%;
-  padding: 0.65rem 0.8rem;
-  border: 1.5px solid #d0d5dd;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  box-sizing: border-box;
-  transition: border-color 0.15s ease;
-}
-
-.field input:focus,
-.field select:focus {
-  outline: none;
-  border-color: #1F4E78;
-}
-
-.role-select {
+.password-heading {
   display: flex;
-  gap: 0.6rem;
-}
 
-.role-select label {
-  flex: 1;
-  display: flex;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0.55rem;
-  border: 1.5px solid #d0d5dd;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: #344054;
+}
+
+.password-heading label {
+  margin-bottom: 8px;
+}
+
+.forgot-btn {
+  padding: 0;
+
+  border: none;
+
+  background: transparent;
+
+  color: #168cff;
+
+  font-size: 11px;
+
+  font-weight: 650;
+
   cursor: pointer;
 }
 
-.role-select input {
-  width: auto;
-  margin: 0;
+/* ================================
+   INPUT
+================================ */
+
+.input-wrapper {
+  height: 52px;
+
+  display: flex;
+  align-items: center;
+
+  gap: 11px;
+
+  padding: 0 15px;
+
+  background: white;
+
+  border: 1px solid #dce5ec;
+
+  border-radius: 13px;
+
+  transition: 0.2s ease;
 }
+
+.input-wrapper:focus-within {
+  border-color: #168cff;
+
+  box-shadow:
+    0 0 0 4px rgba(22, 140, 255, 0.09);
+}
+
+.input-icon {
+  display: flex;
+
+  color: #91a1af;
+}
+
+.input-wrapper input {
+  width: 100%;
+  height: 100%;
+
+  min-width: 0;
+
+  border: none;
+  outline: none;
+
+  background: transparent;
+
+  color: #172c3e;
+
+  font-size: 14px;
+}
+
+.input-wrapper input::placeholder {
+  color: #a9b5bf;
+}
+
+.show-password {
+  padding: 5px;
+
+  border: none;
+
+  background: transparent;
+
+  color: #168cff;
+
+  font-size: 11px;
+
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+/* ================================
+   BUTTON
+================================ */
 
 .submit-btn {
   width: 100%;
-  padding: 0.75rem;
-  background: #1F4E78;
-  color: #ffffff;
+  height: 52px;
+
+  margin-top: 4px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 12px;
+
   border: none;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 600;
+
+  border-radius: 13px;
+
+  background:
+    linear-gradient(
+      135deg,
+      #168cff,
+      #0868d8
+    );
+
+  color: white;
+
+  font-size: 15px;
+  font-weight: 750;
+
   cursor: pointer;
-  margin-top: 0.4rem;
-  transition: background 0.15s ease;
+
+  box-shadow:
+    0 12px 28px rgba(22, 140, 255, 0.24);
+
+  transition: 0.2s ease;
 }
 
 .submit-btn:hover {
-  background: #163a5c;
+  transform: translateY(-2px);
+
+  box-shadow:
+    0 16px 34px rgba(22, 140, 255, 0.32);
 }
 
+.arrow {
+  font-size: 20px;
+}
+
+/* ================================
+   SECURITY CARD
+================================ */
+
+.security-card {
+  display: flex;
+  align-items: center;
+
+  gap: 12px;
+
+  margin-top: 14px;
+
+  padding: 12px;
+
+  border-radius: 13px;
+
+  background: #f1fbf6;
+
+  border: 1px solid #d9f0e4;
+}
+
+.security-check {
+  width: 31px;
+  height: 31px;
+
+  flex-shrink: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border-radius: 50%;
+
+  background: #3fc989;
+
+  color: white;
+
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.security-card strong {
+  display: block;
+
+  color: #185d3e;
+
+  font-size: 12px;
+}
+
+.security-card p {
+  margin: 3px 0 0;
+
+  color: #648171;
+
+  font-size: 11px;
+}
+
+/* ================================
+   STATUS
+================================ */
+
 .status-msg {
-  margin-top: 1rem;
-  padding: 0.6rem 0.8rem;
-  border-radius: 8px;
-  font-size: 0.85rem;
+  margin-top: 17px;
+
+  padding: 12px;
+
+  border-radius: 10px;
+
   text-align: center;
+
+  font-size: 12px;
 }
 
 .status-msg.success {
-  background: #e6f4ea;
-  color: #1e7e34;
+  color: #17643f;
+
+  background: #ecfaf3;
+
+  border: 1px solid #c9edda;
 }
 
 .status-msg.error {
-  background: #fdecea;
-  color: #c0392b;
+  color: #a52b35;
+
+  background: #fff1f2;
+
+  border: 1px solid #ffd4d8;
+}
+
+/* ================================
+   TABLET
+================================ */
+
+@media (max-width: 1000px) {
+  .split-visual {
+    padding: 25px 40px;
+  }
+
+  .split-form-side {
+    padding: 25px 30px;
+  }
+
+  .visual-content h1 {
+    font-size: 48px;
+  }
+
+  .hero-features {
+    gap: 12px;
+  }
+}
+
+/* ================================
+   MOBILE
+================================ */
+
+@media (max-width: 760px) {
+  .split-page {
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .split-visual {
+    display: none;
+  }
+
+  .split-form-side {
+    width: 100%;
+    height: 100vh;
+
+    min-height: 100vh;
+
+    padding: 30px 22px;
+  }
+
+  .mobile-brand {
+    display: flex;
+  }
+
+  .form-shell {
+    max-width: 460px;
+  }
+}
+
+/* ================================
+   SHORT SCREEN
+================================ */
+
+@media (max-height: 700px) and (min-width: 761px) {
+  .split-visual {
+    padding: 20px 45px;
+  }
+
+  .brand-logo {
+    width: 40px;
+    height: 40px;
+  }
+
+  .brand-name {
+    font-size: 22px;
+  }
+
+  .visual-content {
+    margin-top: auto;
+    margin-bottom: auto;
+  }
+
+  .visual-content h1 {
+    font-size: 46px;
+
+    margin-top: 13px;
+    margin-bottom: 9px;
+  }
+
+  .tagline {
+    font-size: 14px;
+  }
+
+  .route-visual {
+    height: 145px;
+
+    margin-top: 5px;
+  }
+
+  .route-illustration {
+    height: 135px;
+  }
+
+  .hero-features {
+    margin-top: 0;
+  }
+
+  .split-form-side {
+    padding-top: 18px;
+    padding-bottom: 18px;
+  }
+
+  .form-toggle {
+    margin-bottom: 20px;
+  }
+
+  .welcome-icon {
+    width: 40px;
+    height: 40px;
+
+    margin-bottom: 8px;
+  }
+
+  .login-content h2 {
+    font-size: 28px;
+  }
+
+  .subtext {
+    margin-bottom: 18px;
+  }
+
+  .field {
+    margin-bottom: 13px;
+  }
+
+  .input-wrapper {
+    height: 48px;
+  }
+
+  .submit-btn {
+    height: 48px;
+  }
+
+  .security-card {
+    margin-top: 12px;
+  }
+}
+
+/* ================================
+   SMALL MOBILE
+================================ */
+
+@media (max-width: 420px) {
+  .split-form-side {
+    padding: 24px 18px;
+  }
+
+  .login-content h2 {
+    font-size: 29px;
+  }
+
+  .form-toggle {
+    gap: 28px;
+  }
 }
