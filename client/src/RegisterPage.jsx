@@ -1,96 +1,137 @@
-import { useState } from "react";
+import React, { useState } from "react";
+import campushopLogo from "./assets/campushop-logo.png";
 
-function RegisterPage() {
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    password: "",
-    role: "student",
-  });
-  const [status, setStatus] = useState(null);
+export default function RegisterPage({ onBack, onComplete }) {
+  const [role, setRole] = useState("student");
 
-  function handleChange(e) {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  }
-
-  async function handleSubmit(e) {
+  const submit = (e) => {
     e.preventDefault();
 
-    try {
-      const res = await fetch("http://localhost:5000/api/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setStatus({ type: "error", text: data.error });
-      } else {
-        setStatus({ type: "success", text: data.message });
-      }
-    } catch (err) {
-      setStatus({ type: "error", text: "Could not reach the server." });
-    }
-  }
+    onComplete({
+      name: e.target.name.value,
+      role,
+      email: e.target.email.value,
+    });
+  };
 
   return (
-    <>
-      <h2>Create your account</h2>
-      <p className="subtext">Only verified college email addresses can register.</p>
+    <main className="auth-page register-page">
+      <section className="auth-brand">
+        <img
+  src={campushopLogo}
+  alt="CampusHop"
+  className="campushop-logo"
+/>
 
-      <form onSubmit={handleSubmit}>
-        <div className="field">
-          <label>Full Name</label>
-          <input name="name" value={form.name} onChange={handleChange} required />
+        <div>
+          <span className="eyebrow">JOIN THE HOP</span>
+          <h1>
+            Same campus.
+            <br />
+            <em>Less traffic.</em>
+          </h1>
         </div>
 
-        <div className="field">
-          <label>College Email</label>
-          <input name="email" type="email" value={form.email} onChange={handleChange} required />
+        <div className="sticker sticker-yellow">
+          <span>01</span>
+          verify
+          <br />
+          your campus
         </div>
 
-        <div className="field">
-          <label>Password</label>
-          <input name="password" type="password" value={form.password} onChange={handleChange} required />
+        <div className="sticker sticker-sage">
+          <span>02</span>
+          find a
+          <br />
+          matching route
         </div>
+      </section>
 
-        <div className="field">
-          <label>I am a</label>
-          <div className="role-select">
-            <label>
-              <input
-                type="radio"
-                name="role"
-                value="student"
-                checked={form.role === "student"}
-                onChange={handleChange}
-              />
-              Student
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="role"
-                value="faculty"
-                checked={form.role === "faculty"}
-                onChange={handleChange}
-              />
-              Faculty
-            </label>
+      <section className="auth-panel">
+        <div className="auth-inner">
+          <button className="back-button" onClick={onBack}>
+            ← Back
+          </button>
+
+          <div className="auth-heading">
+            <span className="eyebrow">CREATE ACCOUNT</span>
+            <h2>Let's get you moving.</h2>
+            <p>Use your institutional email to join your campus.</p>
           </div>
+
+          <form onSubmit={submit} className="auth-form">
+            <label>
+              Full name
+              <input
+                name="name"
+                type="text"
+                placeholder="Your name"
+                required
+              />
+            </label>
+
+            <label>
+              Campus email
+              <input
+                name="email"
+                type="email"
+                placeholder="you@college.edu"
+                required
+              />
+            </label>
+
+            <div>
+              <span className="input-title">I am a</span>
+
+              <div className="role-grid">
+                <button
+                  type="button"
+                  className={`role-option ${
+                    role === "student" ? "selected" : ""
+                  }`}
+                  onClick={() => setRole("student")}
+                >
+                  <span className="role-icon">🎒</span>
+                  <strong>Student</strong>
+                  <small>Find or offer rides</small>
+                </button>
+
+                <button
+                  type="button"
+                  className={`role-option ${
+                    role === "faculty" ? "selected" : ""
+                  }`}
+                  onClick={() => setRole("faculty")}
+                >
+                  <span className="role-icon">📚</span>
+                  <strong>Faculty</strong>
+                  <small>Find or offer rides</small>
+                </button>
+              </div>
+            </div>
+
+            <label>
+              Password
+              <input
+                name="password"
+                type="password"
+                placeholder="Create a password"
+                required
+              />
+            </label>
+
+            <button className="primary-button" type="submit">
+              Create account
+              <span>→</span>
+            </button>
+          </form>
+
+          <p className="verification-note">
+            <span>✓</span>
+            Your campus email will be verified before access is granted.
+          </p>
         </div>
-
-        <button type="submit" className="submit-btn">Register</button>
-      </form>
-
-      {status && (
-        <div className={`status-msg ${status.type}`}>{status.text}</div>
-      )}
-    </>
+      </section>
+    </main>
   );
 }
-
-export default RegisterPage;

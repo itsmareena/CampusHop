@@ -1,39 +1,41 @@
-function RouteIllustration() {
+import React from "react";
+
+export default function RouteIllustration({
+  compact = false,
+  pickup = "BTM Layout",
+  dropoff = "Campus",
+}) {
   return (
-    <svg
-      className="route-illustration"
-      viewBox="0 0 260 200"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M 30 160 C 80 160, 70 60, 130 60 S 190 140, 230 40"
-        fill="none"
-        stroke="#ffffff"
-        strokeOpacity="0.5"
-        strokeWidth="3"
-        strokeDasharray="2 10"
-        strokeLinecap="round"
-      />
-
-      <circle cx="30" cy="160" r="8" fill="#ffffff" />
-      <circle cx="230" cy="40" r="8" fill="#ffffff" />
-      <circle cx="230" cy="40" r="14" fill="none" stroke="#ffffff" strokeOpacity="0.4" strokeWidth="2" />
-
-      <g transform="translate(95, 95)">
-        <circle cx="10" cy="45" r="14" fill="none" stroke="#ffffff" strokeWidth="4" />
-        <circle cx="50" cy="45" r="14" fill="none" stroke="#ffffff" strokeWidth="4" />
+    <div className={`route-sketch ${compact ? "route-sketch--compact" : ""}`}>
+      <svg
+        className="route-svg"
+        viewBox="0 0 500 130"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
         <path
-          d="M 10 45 L 25 20 L 40 20 M 25 20 L 20 45 M 40 20 L 50 45"
-          fill="none"
-          stroke="#ffffff"
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          d="M18 92 C80 25, 115 105, 175 63 S270 20, 320 70 S405 112, 480 34"
+          className="route-path"
         />
-        <circle cx="25" cy="18" r="5" fill="#ffffff" />
-      </g>
-    </svg>
+
+        <circle cx="18" cy="92" r="7" className="route-point route-point--start" />
+        <circle cx="480" cy="34" r="7" className="route-point route-point--end" />
+
+        <path
+          d="M95 55 l10 -7 M195 48 l10 6 M305 64 l-7 9 M390 76 l9 -7"
+          className="route-doodle"
+        />
+      </svg>
+
+      <div className="route-label route-label--start">
+        <span>pickup</span>
+        <strong>{pickup}</strong>
+      </div>
+
+      <div className="route-label route-label--end">
+        <span>drop-off</span>
+        <strong>{dropoff}</strong>
+      </div>
+    </div>
   );
 }
-
-export default RouteIllustration;
