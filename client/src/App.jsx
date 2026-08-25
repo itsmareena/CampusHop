@@ -4,6 +4,10 @@ import RegisterPage from "./RegisterPage";
 import RouteIllustration from "./RouteIllustration";
 import campushopLogo from "./assets/campushop-logo.png";
 
+import FindRide from "./FindRide";
+import OfferRide from "./OfferRide";
+import MyTrips from "./MyTrips";
+
 const rides = [
   {
     id: 1,
@@ -126,25 +130,91 @@ function RideCard({ ride, onRequest }) {
 }
 
 function Dashboard({ user, onLogout }) {
-  const [activeTab, setActiveTab] = useState("matches");
+  const [activeTab, setActiveTab] = useState("home");
   const [requested, setRequested] = useState(null);
 
+  const [rides, setRides] = useState([
+    {
+      id: 1,
+      name: "Ananya",
+      initials: "AN",
+      role: "Student",
+      vehicle: "Scooty",
+      pickup: "BTM Layout",
+      dropoff: "BMS College",
+      time: "8:10 AM",
+      score: 96,
+      rating: 4.9,
+      trips: 42,
+      accent: "coral",
+      rotation: "-1.2deg",
+    },
+    {
+      id: 2,
+      name: "Rahul",
+      initials: "RK",
+      role: "Faculty",
+      vehicle: "Car",
+      pickup: "Jayanagar 4th Block",
+      dropoff: "BMS College",
+      time: "8:25 AM",
+      score: 91,
+      rating: 4.8,
+      trips: 67,
+      accent: "sage",
+      rotation: "1deg",
+    },
+    {
+      id: 3,
+      name: "Meera",
+      initials: "ME",
+      role: "Student",
+      vehicle: "Bike",
+      pickup: "Basavanagudi",
+      dropoff: "BMS College",
+      time: "8:15 AM",
+      score: 87,
+      rating: 4.7,
+      trips: 31,
+      accent: "lavender",
+      rotation: "-0.5deg",
+    },
+  ]);
+  const [myTrips, setMyTrips] = useState([]);
+
+const addRide = (ride) => {
+  setRides((currentRides) => [ride, ...currentRides]);
+};
+
   const requestRide = (ride) => {
-    setRequested(ride);
+  const trip = {
+    ...ride,
+    tripId: Date.now(),
+    date: "UPCOMING",
+    person: ride.name,
+    role: "Driver",
   };
+
+  setMyTrips((currentTrips) => [trip, ...currentTrips]);
+};
 
   return (
     <div className="dashboard">
       <header className="topbar">
-        <Logo />
+        <button
+  className="logo-button"
+  onClick={() => setActiveTab("home")}
+>
+  <Logo />
+</button>
 
         <nav className="main-nav">
           <button
-            className={activeTab === "matches" ? "active" : ""}
-            onClick={() => setActiveTab("matches")}
-          >
-            Find a ride
-          </button>
+  className={activeTab === "find" ? "active" : ""}
+  onClick={() => setActiveTab("find")}
+>
+  Find a ride
+</button>
 
           <button
             className={activeTab === "offer" ? "active" : ""}
@@ -178,7 +248,10 @@ function Dashboard({ user, onLogout }) {
       </header>
 
       <main className="dashboard-content">
-        <section className="welcome-row">
+
+  {activeTab === "home" && (
+    <>
+      <section className="welcome-row">
           <div>
             <span className="eyebrow">MONDAY · AUGUST 24</span>
             <h1>
@@ -304,8 +377,26 @@ function Dashboard({ user, onLogout }) {
               <span>Vehicle</span>
             </div>
           </div>
-        </section>
-      </main>
+                </section>
+    </>
+  )}
+
+  {activeTab === "find" && (
+  <FindRide
+    rides={rides}
+    onRequest={requestRide}
+  />
+)}
+
+{activeTab === "offer" && (
+  <OfferRide onPostRide={addRide} />
+)}
+
+{activeTab === "trips" && (
+  <MyTrips trips={myTrips} />
+)}
+
+</main>
 
       {requested && (
         <div className="modal-backdrop" onClick={() => setRequested(null)}>
@@ -347,6 +438,69 @@ function Dashboard({ user, onLogout }) {
 }
 
 export default function App() {
+  const [rides, setRides] = useState([
+  {
+    id: 1,
+    name: "Ananya",
+    initials: "AN",
+    role: "Student · AIML",
+    pickup: "BTM Layout",
+    dropoff: "BMS College",
+    date: "2026-08-25",
+    time: "08:10",
+    vehicle: "Scooty",
+    seats: 2,
+    score: 96,
+    rating: 4.9,
+    trips: 42,
+    accent: "coral",
+    rotation: "-1.2deg",
+  },
+
+  {
+    id: 2,
+    name: "Rahul",
+    initials: "RK",
+    role: "Student · CSE",
+    pickup: "Jayanagar",
+    dropoff: "PES University",
+    date: "2026-08-25",
+    time: "08:25",
+    vehicle: "Car",
+    seats: 3,
+    score: 91,
+    rating: 4.8,
+    trips: 67,
+    accent: "sage",
+    rotation: "1.4deg",
+  },
+
+  {
+    id: 3,
+    name: "Meera",
+    initials: "MS",
+    role: "Faculty · ECE",
+    pickup: "JP Nagar",
+    dropoff: "PES University",
+    date: "2026-08-25",
+    time: "08:40",
+    vehicle: "Car",
+    seats: 2,
+    score: 87,
+    rating: 4.9,
+    trips: 31,
+    accent: "lavender",
+    rotation: "-0.6deg",
+  },
+]);
+
+const addRide = (ride) => {
+  setRides((currentRides) => [
+    ride,
+    ...currentRides,
+  ]);
+};
+
   const [page, setPage] = useState("login");
   const [user, setUser] = useState(null);
 
