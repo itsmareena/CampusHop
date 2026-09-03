@@ -1,67 +1,80 @@
+// CampusHop API server.
+//
+// The browser no longer talks to the database. Every read and write goes
+// through these endpoints, which establish who the caller is from a
+// signed token and enforce the rules — a driver may only edit their own
+// ride, only the driver may answer a request, a ride cannot be oversold.
+//
+// The routing API key lives here too, so it never ships to the client.
+
 const express = require("express");
 const cors = require("cors");
 
+const config = require("./src/config");
+const { requireAuth } = require("./src/auth");
+
+const ridesRoutes = require("./src/routes/rides").router;
+const requestRoutes = require("./src/routes/requests");
+const geoRoutes = require("./src/routes/geo");
+const profileRoutes = require("./src/routes/profile");
+
 const app = express();
-const PORT = 5000;
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({ origin: config.clientOrigin, credentials: true }));
+app.use(express.json({ limit: "1mb" }));
 
-// Temporary in-memory "database" — resets every time the server restarts.
-// We'll replace this with a real database later.
-const users = [];
+// Lightweight request log; useful when demonstrating that the client is
+// genuinely going through the API.
+app.use((req, res, next) => {
+  const started = Date.now();
 
-// The only email domain allowed to register (change this to your actual college domain)
-const ALLOWED_DOMAIN = "college.edu";
+  res.on("finish", () => {
+    console.log(
+      `${req.method} ${req.originalUrl} -> ${res.statusCode} (${Date.now() - started}ms)`
+    );
+  });
 
-app.get("/api/ping", (req, res) => {
-  res.json({ message: "Hello from CampusHop backend!" });
+  next();
 });
 
-app.post("/api/register", (req, res) => {
-  const { name, email, password, role } = req.body;
-
-  if (!name || !email || !password || !role) {
-    return res.status(400).json({ error: "All fields are required." });
-  }
-
-  const domain = email.split("@")[1];
-  if (domain !== ALLOWED_DOMAIN) {
-    return res.status(403).json({ error: `Only ${ALLOWED_DOMAIN} email addresses can register.` });
-  }
-
-  const alreadyExists = users.find((u) => u.email === email);
-  if (alreadyExists) {
-    return res.status(409).json({ error: "An account with this email already exists." });
-  }
-
-  const newUser = { id: users.length + 1, name, email, password, role };
-  users.push(newUser);
-
-  console.log("Registered users so far:", users);
-
-  res.status(201).json({ message: "Registration successful!", user: { id: newUser.id, name, email, role } });
-});
-
-app.post("/api/login", (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email and password are required." });
-  }
-
-  const user = users.find((u) => u.email === email);
-
-  if (!user || user.password !== password) {
-    return res.status(401).json({ error: "Invalid email or password." });
-  }
-
-  res.status(200).json({
-    message: `Welcome back, ${user.name}!`,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+app.get("/api/health", (req, res) => {
+  res.json({
+    ok: true,
+    service: "campushop-api",
+    routing: Boolean(config.orsKey),
+    places: Boolean(config.googleMapsKey),
+    privilegedDatabaseAccess: config.usingServiceKey,
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// Everything below requires a signed-in user.
+app.use("/api/geo", requireAuth, geoRoutes);
+app.use("/api/rides", requireAuth, ridesRoutes);
+app.use("/api/requests", requireAuth, requestRoutes);
+app.use("/api/profile", requireAuth, profileRoutes);
+
+app.use((req, res) => {
+  res.status(404).json({ error: `No such endpoint: ${req.method} ${req.originalUrl}` });
+});
+
+// Central error handler. Upstream failures carry their own status; the
+// rest are treated as server faults and logged rather than leaked.
+app.use((err, req, res, _next) => {
+  const status = err.status || 500;
+
+  if (status >= 500) {
+    console.error("Unhandled error:", err);
+  }
+
+  res.status(status).json({
+    error: status >= 500 ? "Something went wrong on the server." : err.message,
+  });
+});
+
+app.listen(config.port, () => {
+  console.log(`CampusHop API listening on http://localhost:${config.port}`);
+  console.log(`  allowing origin      : ${config.clientOrigin}`);
+  console.log(`  routing configured   : ${Boolean(config.orsKey)}`);
+  console.log(`  google places        : ${Boolean(config.googleMapsKey)}`);
+  console.log(`  service-role database: ${config.usingServiceKey}`);
 });

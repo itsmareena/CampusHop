@@ -1,17 +1,51 @@
 import React, { useState } from "react";
 import campushopLogo from "./assets/campushop-logo.png";
+import { supabase } from "./supabaseClient";
+import { api } from "./lib/api";
 
 export default function RegisterPage({ onBack, onComplete }) {
   const [role, setRole] = useState("student");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
+    setError("");
+    setLoading(true);
 
-    onComplete({
-      name: e.target.name.value,
-      role,
-      email: e.target.email.value,
+    const name = e.target.name.value;
+    const email = e.target.email.value;
+    const password = e.target.password.value;
+
+    if (!email.toLowerCase().endsWith(".edu.in")) {
+      setError("Please use your college email address (must end with .edu.in)");
+      setLoading(false);
+      return;
+    }
+
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
     });
+
+    if (signUpError) {
+      setError(signUpError.message);
+      setLoading(false);
+      return;
+    }
+
+    const userId = data.user.id;
+
+    try {
+      await api.profile.create({ name, role });
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+    onComplete({ id: userId, name, role, email });
   };
 
   return (
@@ -75,7 +109,7 @@ export default function RegisterPage({ onBack, onComplete }) {
               <input
                 name="email"
                 type="email"
-                placeholder="you@college.edu"
+                placeholder="you@college.edu.in"
                 required
               />
             </label>
@@ -120,8 +154,10 @@ export default function RegisterPage({ onBack, onComplete }) {
               />
             </label>
 
-            <button className="primary-button" type="submit">
-              Create account
+            {error && <p className="form-error">{error}</p>}
+
+            <button className="primary-button" type="submit" disabled={loading}>
+              {loading ? "Creating account..." : "Create account"}
               <span>→</span>
             </button>
           </form>

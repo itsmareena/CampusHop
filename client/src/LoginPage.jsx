@@ -1,15 +1,39 @@
 import React, { useState } from "react";
+import { supabase } from "./supabaseClient";
+import { api } from "./lib/api";
 
 export default function LoginPage({ onLogin, onRegister }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    onLogin({
+    setError("");
+    setLoading(true);
+
+    const { error: loginError } = await supabase.auth.signInWithPassword({
       email,
-      name: email.split("@")[0] || "Campus rider",
+      password,
     });
+
+    if (loginError) {
+      setError(loginError.message);
+      setLoading(false);
+      return;
+    }
+
+    // Signing in is the one thing still done against Supabase directly;
+    // it yields the token every API call is then made with. Who the user
+    // is comes back from our own server.
+    try {
+      onLogin(await api.profile.get());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -54,7 +78,7 @@ export default function LoginPage({ onLogin, onRegister }) {
               Campus email
               <input
                 type="email"
-                placeholder="you@college.edu"
+                placeholder="you@college.edu.in"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -83,8 +107,10 @@ export default function LoginPage({ onLogin, onRegister }) {
               </button>
             </div>
 
-            <button className="primary-button" type="submit">
-              Sign in
+            {error && <p className="form-error">{error}</p>}
+
+            <button className="primary-button" type="submit" disabled={loading}>
+              {loading ? "Signing in..." : "Sign in"}
               <span>→</span>
             </button>
           </form>

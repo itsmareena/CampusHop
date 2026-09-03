@@ -1,11 +1,24 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { api } from "./lib/api";
+import AddressInput from "./AddressInput";
+import RouteMap from "./RouteMap";
+import { computeRoute, formatDistance, formatDuration } from "./lib/geo";
 
 export default function OfferRide({ onPostRide }) {
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+  const [posting, setPosting] = useState(false);
+
+  // Resolved places (with coordinates), kept apart from the plain fields.
+  const [pickupPlace, setPickupPlace] = useState(null);
+  const [dropoffPlace, setDropoffPlace] = useState(null);
+
+  // The computed route is previewed before posting and then reused on
+  // submit, so posting a ride costs exactly one routing request.
+  const [route, setRoute] = useState(null);
+  const [routing, setRouting] = useState(false);
 
   const [form, setForm] = useState({
-    pickup: "",
-    dropoff: "",
     date: "",
     time: "",
     seats: "2",
@@ -21,47 +34,79 @@ export default function OfferRide({ onPostRide }) {
     }));
   };
 
-  const submitRide = (e) => {
-    e.preventDefault();
+  // Route as soon as both ends are known, so the driver sees the real
+  // roads before committing.
+  useEffect(() => {
+    if (!pickupPlace || !dropoffPlace) {
+      setRoute(null);
+      return;
+    }
 
-    const newRide = {
-      id: Date.now(),
+    let cancelled = false;
 
-      name: "You",
-      initials: "YO",
-      role: "Student",
+    const run = async () => {
+      setRouting(true);
+      setError("");
 
-      pickup: form.pickup,
-      dropoff: form.dropoff,
-      date: form.date,
-      time: form.time,
-
-      vehicle:
-        form.vehicle.charAt(0).toUpperCase() +
-        form.vehicle.slice(1),
-
-      seats: Number(form.seats),
-
-      score: 100,
-      rating: 5.0,
-      trips: 0,
-
-      accent: "coral",
-      rotation: "-0.8deg",
+      try {
+        const result = await computeRoute(pickupPlace, dropoffPlace);
+        if (!cancelled) setRoute(result);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message);
+          setRoute(null);
+        }
+      } finally {
+        if (!cancelled) setRouting(false);
+      }
     };
 
-    onPostRide(newRide);
+    run();
 
-    setSubmitted(true);
+    return () => {
+      cancelled = true;
+    };
+  }, [pickupPlace, dropoffPlace]);
 
-    setForm({
-      pickup: "",
-      dropoff: "",
-      date: "",
-      time: "",
-      seats: "2",
-      vehicle: "car",
-    });
+  const resetForm = () => {
+    setPickupPlace(null);
+    setDropoffPlace(null);
+    setRoute(null);
+    setForm({ date: "", time: "", seats: "2", vehicle: "car" });
+  };
+
+  const submitRide = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!pickupPlace || !dropoffPlace) {
+      setError("Pick both locations from the suggestions so we can map the route.");
+      return;
+    }
+
+    setPosting(true);
+
+    try {
+      // Only the places and the schedule are sent. The server recomputes
+      // the route itself and takes the driver from the access token, so
+      // nothing here can be forged by the browser.
+      await api.rides.create({
+        pickup: pickupPlace,
+        dropoff: dropoffPlace,
+        date: form.date,
+        time: form.time,
+        seats: Number(form.seats),
+        vehicle: form.vehicle,
+      });
+
+      setSubmitted(true);
+      resetForm();
+      onPostRide();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPosting(false);
+    }
   };
 
   return (
@@ -99,29 +144,67 @@ export default function OfferRide({ onPostRide }) {
             <div>
               <h3>Your route</h3>
 
-              <label>
-                Pickup location
+              <AddressInput
+                label="Pickup location"
+                name="pickup"
+                placeholder="e.g. BTM Layout"
+                value={pickupPlace}
+                onChange={setPickupPlace}
+                mapTitle="Where are you setting off from?"
+                required
+              />
 
-                <input
-                  name="pickup"
-                  value={form.pickup}
-                  onChange={handleChange}
-                  placeholder="e.g. BTM Layout"
-                  required
-                />
-              </label>
+              <AddressInput
+                label="Destination"
+                name="dropoff"
+                placeholder="e.g. BMS College of Engineering"
+                value={dropoffPlace}
+                onChange={setDropoffPlace}
+                mapTitle="Where are you headed?"
+                required
+              />
 
-              <label>
-                Destination
+              {routing && (
+                <p className="route-status">Finding the road route…</p>
+              )}
 
-                <input
-                  name="dropoff"
-                  value={form.dropoff}
-                  onChange={handleChange}
-                  placeholder="e.g. BMS College"
-                  required
-                />
-              </label>
+              {/* Shown as soon as either end is chosen. Waiting for the
+                  full route meant a driver could pick a pickup point and
+                  get no confirmation of where it had landed. */}
+              {(route || pickupPlace || dropoffPlace) && (
+                <div className="route-preview">
+                  {route && (
+                    <div className="route-preview-stats">
+                      <div>
+                        <small>DISTANCE</small>
+                        <strong>{formatDistance(route.distanceMeters)}</strong>
+                      </div>
+
+                      <div>
+                        <small>DRIVE TIME</small>
+                        <strong>{formatDuration(route.durationSeconds)}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  <RouteMap
+                    geometry={route?.geometry}
+                    markers={[
+                      pickupPlace && {
+                        lngLat: [pickupPlace.lng, pickupPlace.lat],
+                        kind: "pickup",
+                        label: `From: ${pickupPlace.label}`,
+                      },
+                      dropoffPlace && {
+                        lngLat: [dropoffPlace.lng, dropoffPlace.lat],
+                        kind: "dropoff",
+                        label: `To: ${dropoffPlace.label}`,
+                      },
+                    ].filter(Boolean)}
+                    height={220}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -206,11 +289,14 @@ export default function OfferRide({ onPostRide }) {
             </div>
           </div>
 
+          {error && <p className="form-error">{error}</p>}
+
           <button
             className="primary-button offer-submit"
             type="submit"
+            disabled={posting || routing}
           >
-            Post my ride
+            {posting ? "Posting…" : "Post my ride"}
             <span>→</span>
           </button>
 
@@ -231,7 +317,7 @@ export default function OfferRide({ onPostRide }) {
             <br />
             can change
             <br />
-            someone's commute.
+            someone&apos;s commute.
           </h2>
 
           <p>
