@@ -95,6 +95,10 @@ Run each file in `db/` once, in order, in the Supabase SQL editor:
 | `001_add_route_columns.sql` | Coordinates and stored route geometry on rides |
 | `002_one_request_per_rider.sql` | Unique index making a double request impossible |
 | `003_vehicle_number.sql` | The number plate a rider looks for at the kerb |
+| `004_phone_number.sql` | A number each side can reach the other on |
+| `005_live_tracking.sql` | The driver's live position, and how far along the trip is |
+| `006_profile_email.sql` | The address trip mail is sent to |
+| `007_messages_and_reports.sql` | In-app messages on a trip, and reporting one that went wrong |
 
 `db/backfill-routes.mjs` fills in routes for any rides created before
 coordinates were stored. It is a dry run unless given `--apply`.
@@ -117,6 +121,15 @@ Everything except `/api/health` requires `Authorization: Bearer <token>`.
 | GET | `/api/requests/incoming` | Requests on rides you drive |
 | POST | `/api/requests` | Ask for a seat |
 | PATCH | `/api/requests/:id` | Accept or decline — driver only |
+| POST | `/api/rides/:id/location` | The driver's position as they move. Driver only |
+| POST | `/api/rides/:id/trip` | Move the trip along. Driver only |
+| GET | `/api/rides/:id/live` | Where the driver is now. Driver and accepted riders only |
+| GET | `/api/requests/:id/messages` | The thread on one trip. Reading it marks it read |
+| POST | `/api/requests/:id/messages` | Send a message. Sender comes from the token |
+| GET | `/api/requests/unread` | Unread counts per trip, for the badge |
+| POST | `/api/reports` | Report a trip. Either side; the server decides who it is about |
+| GET | `/api/reports/mine` | Reports you have filed, and where each one got to |
+| GET | `/api/reports/for/:requestId` | What you have already filed about one trip |
 | GET | `/api/geo/search?q=` | Address autocomplete. Suggestions only — no coordinates |
 | GET | `/api/geo/resolve?placeId=` | Coordinates for the one suggestion picked |
 | GET | `/api/geo/reverse?lat=&lng=` | Coordinates to a place name |
@@ -129,9 +142,7 @@ Everything except `/api/health` requires `Authorization: Bearer <token>`.
 | `fromLat`, `fromLng`, `toLat`, `toLng` | Where the rider wants to go |
 | `arriveBy` | `HH:MM` |
 | `vehicle` | `car`, `bike`, `scooty` |
-| `lat`, `lng` | The rider's current position |
-| `radius` | Catchment in metres (default 2000) |
-| `nearbyOnly` | `true` hides rides outside the radius |
+| `lat`, `lng` | The rider's current position. Orders the board by how close each ride passes — it never hides one |
 
 ## How matching works
 
@@ -154,11 +165,76 @@ Distances are measured to the nearest point on the driver's **route**,
 not to their starting pin — a driver who sets off far away but passes
 your street can still pick you up.
 
+## Following a trip
+
+An accepted ride opens the live map for both people, and it runs in two
+legs — because they are not the same journey.
+
+**To the pickup.** The stored route starts where the *ride* starts, not
+where the driver happens to be when they set off, so the first leg is
+computed live from the driver's own position. Both sides watch it: the
+driver routes from their GPS, the rider from the driver's last reported
+position, so a rider at a kerb sees the street the car is actually coming
+down and how long it has left — not a dot drifting across a field. The
+ride's own route is on the map throughout, but faint; a bold line straight
+through the pickup point is exactly what hides the leg that matters.
+
+**Then the ride.** The driver moves the trip along by hand — arrived, then
+started, then finished — and only the step that is due is offered. Arrival
+is confirmed rather than inferred: GPS calls a car "at the kerb" a good
+minute before it has stopped at one, and nothing but the driver knows
+whether anyone actually got in. Starting the ride swaps the live leg over
+to the dropoff, brings the stored route up to full strength, and gives both
+sides the same distance and ETA counting down to the end of the trip.
+
+Positions are written on a distance-or-time cadence rather than every GPS
+tick, and the leg is only re-routed once the vehicle has genuinely moved on
+— a trip costs a handful of routing calls, not one per fix. A fix too old
+to trust is shown greyed rather than hidden: a marker frozen in the wrong
+street with no explanation is worse than one openly marked as stale.
+
+## Messages and reports
+
+**Messages** belong to an accepted request, which is to say to exactly two
+people: the driver of that ride and the one rider they took on. There is
+nothing to read before the seat is accepted — a thread on a pending request
+would be a way to pester a driver who has not agreed to anything — and
+nobody else can read or write one at any point. "I'm at the second gate,
+not the first" is the most common thing either of them needs to say, and
+until now saying it meant handing over a personal number and leaving the
+app. The thread is polled, like everything else here that changes
+underneath you; a websocket for one screen would be a second way of doing
+the same thing.
+
+**Reports** can be filed by either side. A rider left standing at a kerb
+and a driver who waited for someone that never came are the same failure
+seen from two ends, and an app where only one of them can say so is telling
+the other that what happened to them does not count. The form never asks
+who the report is about: there are two people on a trip and the server
+knows which one is filing, so naming the other would only be a way to get
+it wrong, or to abuse it. Reports are reachable from the live screen during
+a trip and from the trip lists afterwards, which is when most problems
+actually become obvious.
+
+A report outlives what it refers to. The ride and the request are set to
+null if they are deleted rather than cascading the report away — a report
+about a trip that has since been cleaned up is exactly the one still worth
+having. There is no screen for whoever reviews them yet; the migration ends
+with the query that lists them.
+
 ## Cost
 
 OpenRouteService is free at 2,000 requests/day, and routes are computed
 once when a ride is posted and then stored — so browsing and searching the
 board costs nothing at all. The matcher never calls anything.
+
+A trip being followed live is the one thing that does call it repeatedly,
+since the road from wherever the vehicle *is* cannot be worked out in
+advance. Two things keep that to a handful of calls rather than one per
+GPS fix: the leg is only re-routed once the vehicle has genuinely moved on
+from where the last one was drawn, and the rider — who is watching a
+marker that already moves by itself — re-routes a good deal more lazily
+than the driver, who is navigating from the line.
 
 Google is metered, and three things keep the volume down:
 

@@ -24,6 +24,57 @@ function walkLabel(meters) {
 }
 
 /** How close this ride's route passes to the rider's actual position. */
+/**
+ * Which day the ride actually leaves.
+ *
+ * A bare departure time reads as "today" to anyone skimming the board,
+ * so a ride posted for later in the week has to say so on the card
+ * itself rather than only inside the details page.
+ */
+function dayLabel(date) {
+  if (!date) return null;
+
+  const when = new Date(`${date}T00:00`);
+
+  if (Number.isNaN(when.getTime())) return date;
+
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+
+  const days = Math.round((when.getTime() - midnight.getTime()) / 86400000);
+
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days === -1) return "Yesterday";
+
+  return when.toLocaleDateString([], {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+/** The departure day, stated plainly next to the rest of the card. */
+function DayTag({ date }) {
+  const label = dayLabel(date);
+
+  if (!label) return null;
+
+  const when = new Date(`${date}T00:00`);
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+
+  const days = Number.isNaN(when.getTime())
+    ? null
+    : Math.round((when.getTime() - midnight.getTime()) / 86400000);
+
+  // Today reads differently from "some day next week", so it is coloured
+  // differently rather than left for the reader to work out.
+  const tone = days === 0 ? "today" : days < 0 ? "past" : "ahead";
+
+  return <div className={`day-tag day-tag--${tone}`}>{label}</div>;
+}
+
 function ProximityTag({ meters }) {
   if (meters == null) return null;
 
@@ -124,7 +175,10 @@ export default function RideCard({ ride, onRequest, showMore = false, pending = 
         {showMore && <button className="more-button">•••</button>}
       </div>
 
-      <ProximityTag meters={ride.distanceFromMe} />
+      <div className="ride-tags">
+        <DayTag date={ride.date} />
+        <ProximityTag meters={ride.distanceFromMe} />
+      </div>
 
       <RouteIllustration
         compact
@@ -138,6 +192,7 @@ export default function RideCard({ ride, onRequest, showMore = false, pending = 
         <div>
           <span>DEPARTS</span>
           <strong>{ride.time || "—"}</strong>
+          <small className="ride-meta-day">{dayLabel(ride.date) || "—"}</small>
         </div>
 
         <div>

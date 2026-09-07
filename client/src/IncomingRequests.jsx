@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import ReportTrip from "./ReportTrip";
 
 /**
  * The driver's full request queue.
@@ -15,6 +16,9 @@ export default function IncomingRequests({
   onAnswer,
   onAccepted,
 }) {
+  // The request a report is being written about, or null.
+  const [reporting, setReporting] = useState(null);
+
   const [answering, setAnswering] = useState(null);
 
   const updateStatus = async (request, status) => {
@@ -35,8 +39,19 @@ export default function IncomingRequests({
     }
   };
 
+  const reportModal = reporting ? (
+    <ReportTrip
+      tripId={reporting.id}
+      role="driver"
+      withName={reporting.riderName}
+      onClose={() => setReporting(null)}
+    />
+  ) : null;
+
   return (
-    <main className="page-shell">
+    <>
+      {reportModal}
+      <main className="page-shell">
       <section className="page-heading">
         <span className="eyebrow">INCOMING REQUESTS</span>
         <h1>People want to ride with you.</h1>
@@ -92,7 +107,25 @@ export default function IncomingRequests({
               </div>
             </div>
 
-            <span className={`status-badge status-${r.status}`}>{r.status}</span>
+            <span
+              className={`status-badge status-${r.expired ? "expired" : r.status}`}
+            >
+              {r.expired ? "expired" : r.status}
+            </span>
+
+            {/* A driver has the same right to report a trip as the
+                rider does: someone who never turned up, or who behaved
+                badly in the vehicle, is the driver's problem to raise. */}
+            {r.status === "accepted" && (
+              <div className="modal-actions">
+                <button
+                  className="secondary-button"
+                  onClick={() => setReporting(r)}
+                >
+                  Report a problem
+                </button>
+              </div>
+            )}
 
             {r.status === "pending" && (
               <div className="modal-actions">
@@ -117,5 +150,6 @@ export default function IncomingRequests({
         ))}
       </section>
     </main>
+    </>
   );
 }

@@ -1,7 +1,7 @@
 const express = require("express");
 const { db } = require("../db");
 const { computeRoute } = require("../geo");
-const { rankRides, withProximity, minutesOfDay, NEARBY_RADIUS_M } = require("../match");
+const { rankRides, withProximity, minutesOfDay } = require("../match");
 
 const router = express.Router();
 
@@ -150,13 +150,15 @@ function numberOr(value, fallback) {
 /**
  * GET /api/rides
  *
- * The search endpoint. Filtering by proximity and ranking by match
- * quality both happen here, so the ordering the rider sees is decided by
- * the server rather than assembled in the browser.
+ * The search endpoint. Ranking by match quality happens here, so the
+ * ordering the rider sees is decided by the server rather than assembled
+ * in the browser.
+ *
+ * Distance never removes a ride from the board — every ride is returned
+ * and the rider judges for themselves whether one starts too far away.
  *
  * Query: fromLat, fromLng, toLat, toLng, arriveBy (HH:MM), vehicle,
- *        lat, lng (the rider's current position), radius (metres),
- *        nearbyOnly ("true" to drop rides outside the radius)
+ *        lat, lng (the rider's current position)
  */
 router.get("/", async (req, res, next) => {
   try {
@@ -192,12 +194,10 @@ router.get("/", async (req, res, next) => {
     const here =
       q.lat && q.lng ? { lat: Number(q.lat), lng: Number(q.lng) } : null;
 
-    const radius = numberOr(q.radius, NEARBY_RADIUS_M);
-
     const searched = Boolean(criteria.pickup && criteria.dropoff);
 
     const ranked = rankRides(rides, criteria);
-    const withDistance = withProximity(ranked, here, radius);
+    const withDistance = withProximity(ranked, here);
 
     // rankRides orders by match score, but that only means something once
     // a route was given. Browsing from a known position is ordered by how
@@ -208,14 +208,9 @@ router.get("/", async (req, res, next) => {
       );
     }
 
-    const nearbyOnly = q.nearbyOnly === "true" && here;
-    const visible = nearbyOnly ? withDistance.filter((r) => r.nearby) : withDistance;
-
     res.json({
-      rides: visible,
+      rides: withDistance,
       total: withDistance.length,
-      hidden: withDistance.length - visible.length,
-      radius,
       searched,
     });
   } catch (err) {
@@ -273,6 +268,35 @@ router.post("/", async (req, res, next) => {
 
     if (seatCount < 1 || seatCount > 6) {
       return res.status(400).json({ error: "Seats must be between 1 and 6." });
+    }
+
+    // A ride into the past helps nobody and clutters everyone's board.
+    // The form already blocks it; this is the copy that cannot be edited
+    // by whoever is holding the browser.
+    //
+    // Compared by date rather than by instant, deliberately. The server's
+    // clock may sit in a different zone from the driver's, and a day of
+    // slack is enough to reject yesterday without ever refusing a ride
+    // that is genuinely still ahead of the person posting it. The exact
+    // same-day check belongs in the browser, which knows their real zone.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: "Date must be in YYYY-MM-DD form." });
+    }
+
+    const departureDay = new Date(`${date}T00:00`);
+
+    if (Number.isNaN(departureDay.getTime())) {
+      return res.status(400).json({ error: "That date is not a real date." });
+    }
+
+    const earliestAllowed = new Date();
+    earliestAllowed.setHours(0, 0, 0, 0);
+    earliestAllowed.setDate(earliestAllowed.getDate() - 1);
+
+    if (departureDay.getTime() < earliestAllowed.getTime()) {
+      return res
+        .status(400)
+        .json({ error: "That date has already passed. Offer a ride from today onwards." });
     }
 
     // Computed here, not accepted from the client.

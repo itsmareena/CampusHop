@@ -1,9 +1,121 @@
 const express = require("express");
 const { db } = require("../db");
+const notify = require("../email");
 
 const router = express.Router();
 
 const STATUSES = ["pending", "accepted", "declined"];
+
+/**
+ * The ride as a notification needs to describe it, plus how full it is.
+ *
+ * Loaded separately from the checks above, which deliberately select
+ * only what they need to make a decision.
+ */
+async function rideForEmail(rideId) {
+  const { data: ride } = await db
+    .from("rides")
+    .select("id, driver_id, pickup, dropoff, date, time, seats, vehicle")
+    .eq("id", rideId)
+    .maybeSingle();
+
+  if (!ride) return null;
+
+  const { data: accepted } = await db
+    .from("trip_requests")
+    .select("id")
+    .eq("ride_id", rideId)
+    .eq("status", "accepted");
+
+  const taken = accepted?.length || 0;
+
+  return { ...ride, seatsLeft: Math.max(0, (ride.seats || 1) - taken) };
+}
+
+/** The driver, as the rider needs to see them: who to look for at the kerb. */
+async function driverForEmail(driverId) {
+  const { data } = await db
+    .from("profiles")
+    .select("name, phone, vehicle_number")
+    .eq("id", driverId)
+    .maybeSingle();
+
+  return data || null;
+}
+
+// Housekeeping for requests nobody ever answered.
+//
+// A pending request on a ride that has already left cannot be acted on
+// by anyone. The driver still sees it marked "expired" for a while, so a
+// missed request is visible rather than silently gone, and after that the
+// row is removed instead of sitting in the table forever.
+//
+// Only unanswered requests are ever deleted. Accepted and declined ones
+// are trip history and are never touched.
+const PURGE_AFTER_DAYS = 7;
+
+// Every signed-in driver polls the incoming endpoint every few seconds,
+// so sweeping on each call would mean constant pointless deletes. Once
+// per interval per server process is plenty for a daily cleanup.
+const SWEEP_EVERY_MS = 10 * 60 * 1000;
+
+let lastSweep = 0;
+
+/**
+ * Delete pending requests whose ride departed more than PURGE_AFTER_DAYS
+ * ago. Returns the number removed, or 0 when the sweep was skipped.
+ *
+ * Departure is a date column plus a time column, which the database
+ * cannot compare in one filter, so the range is narrowed by date and the
+ * exact cut is made here.
+ */
+async function purgeExpiredRequests() {
+  if (Date.now() - lastSweep < SWEEP_EVERY_MS) return 0;
+
+  lastSweep = Date.now();
+
+  const cutoff = Date.now() - PURGE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+  const cutoffDate = new Date(cutoff).toISOString().slice(0, 10);
+
+  const { data: oldRides, error } = await db
+    .from("rides")
+    .select("id, date, time")
+    .lte("date", cutoffDate);
+
+  if (error) throw error;
+
+  const ids = (oldRides || [])
+    .filter((ride) => {
+      const departure = new Date(`${ride.date}T${ride.time || "23:59"}`);
+
+      // A row we cannot read a departure from is left alone rather than
+      // guessed at — deleting the wrong request is not recoverable.
+      return !Number.isNaN(departure.getTime()) && departure.getTime() < cutoff;
+    })
+    .map((ride) => ride.id);
+
+  if (!ids.length) return 0;
+
+  const { data: removed, error: deleteError } = await db
+    .from("trip_requests")
+    .delete()
+    .eq("status", "pending")
+    .in("ride_id", ids)
+    .select("id");
+
+  if (deleteError) throw deleteError;
+
+  const count = removed?.length || 0;
+
+  if (count) {
+    console.log(
+      `Purged ${count} unanswered request${count === 1 ? "" : "s"} ` +
+        `on rides that departed over ${PURGE_AFTER_DAYS} days ago.`
+    );
+  }
+
+  return count;
+}
 
 /**
  * GET /api/requests/mine
@@ -86,6 +198,12 @@ router.get("/mine", async (req, res, next) => {
  */
 router.get("/incoming", async (req, res, next) => {
   try {
+    // Cheap and throttled. A failure here is housekeeping, not the
+    // driver's request, so it must never break the response.
+    await purgeExpiredRequests().catch((err) =>
+      console.error("Expired-request sweep failed:", err.message)
+    );
+
     const { data: myRides, error } = await db
       .from("rides")
       .select("id, pickup, dropoff, date, time, seats")
@@ -224,6 +342,19 @@ router.post("/", async (req, res, next) => {
     if (error) throw error;
 
     res.status(201).json({ request: data });
+
+    // After the response, never in front of it. A slow mail server must
+    // not be why a rider waits to hear their request went through.
+    rideForEmail(rideId)
+      .then((full) =>
+        notify.notifyRequestReceived({
+          request: data,
+          ride: full,
+          driverId: ride.driver_id,
+          riderName: req.user.name,
+        })
+      )
+      .catch((err) => console.error("Request email failed:", err.message));
   } catch (err) {
     next(err);
   }
@@ -285,6 +416,19 @@ router.patch("/:id", async (req, res, next) => {
     if (error) throw error;
 
     res.json({ request: data });
+
+    if (status === "accepted" || status === "declined") {
+      Promise.all([rideForEmail(request.ride_id), driverForEmail(req.user.id)])
+        .then(([full, driver]) =>
+          notify.notifyRequestAnswered({
+            status,
+            riderId: data.rider_id,
+            driver,
+            ride: full,
+          })
+        )
+        .catch((err) => console.error("Answer email failed:", err.message));
+    }
   } catch (err) {
     next(err);
   }
@@ -302,7 +446,7 @@ router.delete("/:id", async (req, res, next) => {
   try {
     const { data: request, error: findError } = await db
       .from("trip_requests")
-      .select("id, ride_id, rider_id")
+      .select("id, ride_id, rider_id, status")
       .eq("id", req.params.id)
       .maybeSingle();
 
@@ -329,9 +473,248 @@ router.delete("/:id", async (req, res, next) => {
     if (error) throw error;
 
     res.json({ ok: true, cancelledBy: isRider ? "rider" : "driver" });
+
+    // Only a seat that was actually confirmed is worth an email. Calling
+    // off a request nobody had answered yet is not news to anyone: the
+    // driver never agreed to it, and the rider was not expecting a lift.
+    if (request.status === "accepted") {
+      rideForEmail(request.ride_id)
+        .then((full) =>
+          notify.notifyCancelled({
+            // Whoever did not do the cancelling is the one who needs to
+            // know — they are the one who would otherwise be waiting.
+            toUserId: isRider ? ride?.driver_id : request.rider_id,
+            byName: req.user.name,
+            byRole: isRider ? "rider" : "driver",
+            ride: full,
+          })
+        )
+        .catch((err) => console.error("Cancellation email failed:", err.message));
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- messages -----------------------------------------------------------
+//
+// A thread belongs to one accepted request, which is to say to exactly two
+// people: the driver of that ride and the one rider they took on. Nobody
+// else can read or write it, and there is nothing to read before the seat
+// was accepted — a thread on a pending request would be a way to pester a
+// driver who has not agreed to anything.
+
+// Long enough for directions to a side gate, short enough that the column
+// is never used to store something else.
+const MESSAGE_MAX = 1000;
+
+/**
+ * Who this caller is on this request, or null if they are neither party.
+ *
+ * Returns the other person's id too, because every use of this needs it:
+ * a message is addressed to them, and a report is about them.
+ */
+async function threadAccess(requestId, userId) {
+  const { data: request } = await db
+    .from("trip_requests")
+    .select("id, ride_id, rider_id, status")
+    .eq("id", requestId)
+    .maybeSingle();
+
+  if (!request) return null;
+
+  const { data: ride } = await db
+    .from("rides")
+    .select("id, driver_id, pickup, dropoff")
+    .eq("id", request.ride_id)
+    .maybeSingle();
+
+  if (!ride) return null;
+
+  if (ride.driver_id === userId) {
+    return { request, ride, role: "driver", otherId: request.rider_id };
+  }
+
+  if (request.rider_id === userId) {
+    return { request, ride, role: "rider", otherId: ride.driver_id };
+  }
+
+  return null;
+}
+
+/** The two people on a thread, by name, so a message has a sender. */
+async function namesFor(ids) {
+  const { data } = await db
+    .from("profiles")
+    .select("id, name")
+    .in("id", ids.filter(Boolean));
+
+  return Object.fromEntries((data || []).map((p) => [p.id, p.name]));
+}
+
+/**
+ * GET /api/requests/:id/messages
+ *
+ * The whole thread, oldest first. Reading it marks the other person's
+ * messages as read — opening the thread *is* having read them, and a
+ * separate "mark read" call would only ever be sent at the same moment.
+ */
+router.get("/:id/messages", async (req, res, next) => {
+  try {
+    const access = await threadAccess(req.params.id, req.user.id);
+
+    if (!access) return res.status(404).json({ error: "No such trip." });
+
+    if (access.request.status !== "accepted") {
+      return res
+        .status(403)
+        .json({ error: "Messages open once the seat is accepted." });
+    }
+
+    const { data: rows, error } = await db
+      .from("trip_messages")
+      .select("id, sender_id, body, created_at, read_at")
+      .eq("request_id", req.params.id)
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+
+    const names = await namesFor([req.user.id, access.otherId]);
+
+    const unread = (rows || []).filter(
+      (m) => m.sender_id !== req.user.id && !m.read_at
+    );
+
+    if (unread.length) {
+      await db
+        .from("trip_messages")
+        .update({ read_at: new Date().toISOString() })
+        .in("id", unread.map((m) => m.id));
+    }
+
+    res.json({
+      role: access.role,
+      withName: names[access.otherId] || null,
+
+      messages: (rows || []).map((m) => ({
+        id: m.id,
+        body: m.body,
+        at: m.created_at,
+        mine: m.sender_id === req.user.id,
+        senderName: names[m.sender_id] || null,
+
+        // Reflect the write above rather than the row we read a moment
+        // ago, so the tick appears on the same load that caused it.
+        readAt: m.sender_id === req.user.id ? m.read_at : new Date().toISOString(),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/requests/:id/messages
+ *
+ * The sender is the token, never the body: nobody can post as the other
+ * person by asking nicely.
+ */
+router.post("/:id/messages", async (req, res, next) => {
+  try {
+    const body = String(req.body?.body || "").trim();
+
+    if (!body) return res.status(400).json({ error: "Write something first." });
+
+    if (body.length > MESSAGE_MAX) {
+      return res
+        .status(400)
+        .json({ error: `Messages are limited to ${MESSAGE_MAX} characters.` });
+    }
+
+    const access = await threadAccess(req.params.id, req.user.id);
+
+    if (!access) return res.status(404).json({ error: "No such trip." });
+
+    if (access.request.status !== "accepted") {
+      return res
+        .status(403)
+        .json({ error: "Messages open once the seat is accepted." });
+    }
+
+    const { data, error } = await db
+      .from("trip_messages")
+      .insert({ request_id: req.params.id, sender_id: req.user.id, body })
+      .select("id, body, created_at")
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      message: { id: data.id, body: data.body, at: data.created_at, mine: true },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/requests/unread
+ *
+ * How many messages are waiting, per trip, so the tab can carry a badge
+ * without opening every thread.
+ */
+router.get("/unread", async (req, res, next) => {
+  try {
+    // Every trip this person is on, from either side.
+    const { data: mine } = await db
+      .from("trip_requests")
+      .select("id")
+      .eq("rider_id", req.user.id)
+      .eq("status", "accepted");
+
+    const { data: myRides } = await db
+      .from("rides")
+      .select("id")
+      .eq("driver_id", req.user.id);
+
+    const { data: onMyRides } = myRides?.length
+      ? await db
+          .from("trip_requests")
+          .select("id")
+          .in("ride_id", myRides.map((r) => r.id))
+          .eq("status", "accepted")
+      : { data: [] };
+
+    const ids = [...new Set([...(mine || []), ...(onMyRides || [])].map((r) => r.id))];
+
+    if (!ids.length) return res.json({ unread: {}, total: 0 });
+
+    const { data: rows, error } = await db
+      .from("trip_messages")
+      .select("request_id, sender_id, read_at")
+      .in("request_id", ids)
+      .is("read_at", null);
+
+    if (error) throw error;
+
+    const unread = {};
+
+    for (const row of rows || []) {
+      // Your own unread message is one the other person has not opened —
+      // not something waiting for you.
+      if (row.sender_id === req.user.id) continue;
+
+      unread[row.request_id] = (unread[row.request_id] || 0) + 1;
+    }
+
+    res.json({
+      unread,
+      total: Object.values(unread).reduce((sum, n) => sum + n, 0),
+    });
   } catch (err) {
     next(err);
   }
 });
 
 module.exports = router;
+module.exports.threadAccess = threadAccess;

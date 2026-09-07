@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { api } from "./lib/api";
+import ReportTrip from "./ReportTrip";
 
 export default function MyTrips({ onViewTrip, onTrackTrip }) {
+  // The trip a report is being written about, or null.
+  const [reporting, setReporting] = useState(null);
+
   const [tab, setTab] = useState("upcoming");
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,8 +64,19 @@ export default function MyTrips({ onViewTrip, onTrackTrip }) {
   const upcoming = trips.filter((t) => t.status !== "declined");
   const history = trips.filter((t) => t.status === "declined");
 
+  const reportModal = reporting ? (
+    <ReportTrip
+      tripId={reporting.tripId}
+      role="rider"
+      withName={reporting.person}
+      onClose={() => setReporting(null)}
+    />
+  ) : null;
+
   return (
-    <main className="page-shell">
+    <>
+      {reportModal}
+      <main className="page-shell">
 
       <section className="page-heading">
         <div>
@@ -196,6 +211,18 @@ export default function MyTrips({ onViewTrip, onTrackTrip }) {
                     </a>
                   )}
 
+                  {/* Most problems are only obvious once the trip is
+                      over, which is long after the live screen has been
+                      closed. This is the way back to it. */}
+                  {trip.status === "accepted" && (
+                    <button
+                      className="secondary-button"
+                      onClick={() => setReporting(trip)}
+                    >
+                      Report a problem
+                    </button>
+                  )}
+
                   <button
                     className="danger-button"
                     disabled={cancelling === trip.tripId}
@@ -263,5 +290,6 @@ export default function MyTrips({ onViewTrip, onTrackTrip }) {
       ) : null}
 
     </main>
+    </>
   );
 }

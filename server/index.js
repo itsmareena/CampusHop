@@ -14,14 +14,19 @@ const config = require("./src/config");
 const { requireAuth } = require("./src/auth");
 
 const ridesRoutes = require("./src/routes/rides").router;
+const reportRoutes = require("./src/routes/reports").router;
 const requestRoutes = require("./src/routes/requests");
 const geoRoutes = require("./src/routes/geo");
 const profileRoutes = require("./src/routes/profile");
+const requestActionRoutes = require("./src/routes/requestActions");
 
 const app = express();
 
 app.use(cors({ origin: config.clientOrigin, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
+
+// The email confirmation page posts a normal HTML form, not JSON.
+app.use(express.urlencoded({ extended: false }));
 
 // Lightweight request log; useful when demonstrating that the client is
 // genuinely going through the API.
@@ -44,14 +49,22 @@ app.get("/api/health", (req, res) => {
     routing: Boolean(config.orsKey),
     places: Boolean(config.googleMapsKey),
     privilegedDatabaseAccess: config.usingServiceKey,
+    emailNotifications: require("./src/email").enabled,
   });
 });
+
+// Answering a request from the notification email. Mounted before the
+// authenticated router below, and deliberately outside it: the driver
+// reading their inbox is not signed in, which is the whole point of
+// having emailed them. The signed token in the link is the authority.
+app.use("/api/requests", requestActionRoutes);
 
 // Everything below requires a signed-in user.
 app.use("/api/geo", requireAuth, geoRoutes);
 app.use("/api/rides", requireAuth, ridesRoutes);
 app.use("/api/requests", requireAuth, requestRoutes);
 app.use("/api/profile", requireAuth, profileRoutes);
+app.use("/api/reports", requireAuth, reportRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: `No such endpoint: ${req.method} ${req.originalUrl}` });
@@ -77,4 +90,5 @@ app.listen(config.port, () => {
   console.log(`  routing configured   : ${Boolean(config.orsKey)}`);
   console.log(`  google places        : ${Boolean(config.googleMapsKey)}`);
   console.log(`  service-role database: ${config.usingServiceKey}`);
+  console.log(`  email notifications  : ${require("./src/email").enabled}`);
 });
