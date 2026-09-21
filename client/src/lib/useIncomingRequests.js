@@ -1,29 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { departed } from "./rideState";
 
 // The driver is not sitting on the Requests tab waiting, so this polls
 // from the dashboard shell instead — often enough to feel live, rarely
 // enough to stay cheap.
 const POLL_MS = 8000;
 
-/**
- * Whether a ride's departure has already passed.
- *
- * A request only matters until the ride leaves. After that nobody can
- * act on it usefully, so it stops standing in front of the driver rather
- * than nagging about a trip that has already gone.
- */
-function departed(ride) {
-  if (!ride?.date) return false;
-
-  const when = new Date(`${ride.date}T${ride.time || "23:59"}`);
-
-  // An unparseable date is kept rather than hidden — losing a live
-  // request is worse than showing a stale one.
-  if (Number.isNaN(when.getTime())) return false;
-
-  return when.getTime() < Date.now();
-}
 
 /**
  * The driver's incoming requests, polled once for the whole app.

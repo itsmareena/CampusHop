@@ -11,6 +11,14 @@ import {
 } from "./lib/geo";
 import { api } from "./lib/api";
 import { WEIGHTS } from "./lib/match";
+import { upcoming } from "./lib/rideState";
+
+// How often the board re-checks itself against the clock. The API decides
+// what is on the board and this page re-fetches whenever the dashboard's
+// poll turns up something new, so this is only for the ride that runs out
+// while nothing else changes — a page left open across an 08:00 departure
+// should not still be offering the 08:00 seat at 08:04.
+const EXPIRY_TICK_MS = 30000;
 
 export default function FindRide({ rides, onRequest, initialSearch, pendingRideId = null }) {
   const [requested, setRequested] = useState(null);
@@ -156,7 +164,20 @@ export default function FindRide({ rides, onRequest, initialSearch, pendingRideI
     };
   }, [rides, fromPlace, toPlace, arriveBy, vehicle, myLocation]);
 
-  const visible = board.rides;
+  // Re-renders on a timer so a ride that reaches its departure while this
+  // page is open drops off it, rather than waiting for the next search or
+  // a reload to notice.
+  const [, setClock] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), EXPIRY_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  // The API has already ended the board at each ride's departure; this is
+  // the same rule applied to the copy this page is holding, which was true
+  // when it arrived and goes stale by the second.
+  const visible = upcoming(board.rides);
 
   const best = searching ? visible[0] : null;
 

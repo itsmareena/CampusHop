@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import ReportTrip from "./ReportTrip";
+import { formatFare, fareNote } from "./lib/fare";
 
 /**
  * The driver's full request queue.
@@ -15,6 +16,8 @@ export default function IncomingRequests({
   error,
   onAnswer,
   onAccepted,
+  onOpenLive,
+  nearby,
 }) {
   // The request a report is being written about, or null.
   const [reporting, setReporting] = useState(null);
@@ -39,6 +42,9 @@ export default function IncomingRequests({
     }
   };
 
+  // Nothing to answer. Loading is not "nothing", and neither is an error.
+  const quiet = !loading && !error && requests.length === 0;
+
   const reportModal = reporting ? (
     <ReportTrip
       tripId={reporting.id}
@@ -52,21 +58,33 @@ export default function IncomingRequests({
     <>
       {reportModal}
       <main className="page-shell">
-      <section className="page-heading">
-        <span className="eyebrow">INCOMING REQUESTS</span>
-        <h1>People want to ride with you.</h1>
-        <p>
-          Accept or decline requests for rides you&apos;ve posted. They are
-          listed in the order they arrived — whoever asked first is at the top.
-        </p>
-      </section>
+      {/* Someone with nobody asking to ride with them is, on this page,
+          almost always someone looking for a ride themselves. For them the
+          rides nearby are the page, and a driver's empty queue is a footnote.
+          Once there are requests to answer, those come first — a waiting
+          rider matters more than browsing. */}
+      {quiet && nearby}
+
+      {!quiet && (
+        <section className="page-heading">
+          <span className="eyebrow">INCOMING REQUESTS</span>
+          <h1>People want to ride with you.</h1>
+          <p>
+            Accept or decline requests for rides you&apos;ve posted. They are
+            listed in the order they arrived — whoever asked first is at the top.
+          </p>
+        </section>
+      )}
 
       {loading && <p>Loading...</p>}
 
       {error && <p className="form-error">{error}</p>}
 
-      {!loading && !error && requests.length === 0 && (
-        <p>No requests yet on your posted rides.</p>
+      {quiet && (
+        <p className="requests-quiet">
+          No one has asked to join a ride you&apos;ve posted. Requests will
+          appear here when they do.
+        </p>
       )}
 
       <section className="trips-list">
@@ -113,11 +131,41 @@ export default function IncomingRequests({
               {r.expired ? "expired" : r.status}
             </span>
 
-            {/* A driver has the same right to report a trip as the
-                rider does: someone who never turned up, or who behaved
-                badly in the vehicle, is the driver's problem to raise. */}
+            {/* The driver sees exactly what the rider sees. Two different
+                numbers is how an argument at the kerb starts — and with a
+                split there is only one number anyway: they each carry the
+                same half of what the journey costs. */}
+            {r.fare && (
+              <p className="ride-fare ride-fare--inline">
+                <strong>{formatFare(r.fare)}</strong>
+                <span>{fareNote(r.fare)} · each</span>
+              </p>
+            )}
+
             {r.status === "accepted" && (
               <div className="modal-actions">
+                {/* The way back to the live map.
+                    Accepting opens it once, and closing it used to be the
+                    end of the matter — the driver was on their way to
+                    somebody with no route back to the screen showing where
+                    that somebody was standing. A trip that is still a
+                    journey can be reopened from here as many times as it
+                    takes. A finished one cannot: there is no live map
+                    worth opening for a trip that is over. */}
+                {r.state !== "finished" && onOpenLive && (
+                  <button
+                    className="primary-button"
+                    onClick={() => onOpenLive(r)}
+                  >
+                    {r.tripStatus && r.tripStatus !== "scheduled"
+                      ? "Open live map →"
+                      : "Start the trip →"}
+                  </button>
+                )}
+
+                {/* A driver has the same right to report a trip as the
+                    rider does: someone who never turned up, or who behaved
+                    badly in the vehicle, is the driver's problem to raise. */}
                 <button
                   className="secondary-button"
                   onClick={() => setReporting(r)}
@@ -149,6 +197,8 @@ export default function IncomingRequests({
           </article>
         ))}
       </section>
+
+      {!quiet && !loading && nearby}
     </main>
     </>
   );

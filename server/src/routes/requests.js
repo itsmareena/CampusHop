@@ -1,6 +1,9 @@
 const express = require("express");
 const { db } = require("../db");
 const notify = require("../email");
+const config = require("../config");
+const { fareDetail } = require("../pricing");
+const { departed, departureIso, departureInstant } = require("../expiry");
 
 const router = express.Router();
 
@@ -43,16 +46,26 @@ async function driverForEmail(driverId) {
   return data || null;
 }
 
-// Housekeeping for requests nobody ever answered.
+// Housekeeping for trips that are over.
 //
-// A pending request on a ride that has already left cannot be acted on
-// by anyone. The driver still sees it marked "expired" for a while, so a
-// missed request is visible rather than silently gone, and after that the
-// row is removed instead of sitting in the table forever.
+// A trip stops being listed the moment it is done — a finished ride drops
+// out of Upcoming and into History on its own, which is the part anybody
+// actually sees. This is the slower half: eventually the row goes too,
+// rather than every trip anyone has ever taken sitting in the table for
+// good.
 //
-// Only unanswered requests are ever deleted. Accepted and declined ones
-// are trip history and are never touched.
-const PURGE_AFTER_DAYS = 7;
+// Not immediately, though, and that is the whole design of it. The window
+// is what "Report a problem" runs on: most trouble is only obvious once a
+// trip is over and the live screen has been closed, and a rider who gets
+// home and realises something was wrong has to find the trip to report it.
+// Deleting the trip the moment the driver marks it complete would hand the
+// person with something to report the one screen where the evidence used
+// to be, empty. A week is long enough to get around to it and short enough
+// that nothing piles up.
+//
+// Once a ride's last request is gone this way, the ride itself becomes
+// deletable and the sweeper in sweepRides.js takes it on its next pass.
+const PURGE_AFTER_DAYS = config.tripHistoryDays;
 
 // Every signed-in driver polls the incoming endpoint every few seconds,
 // so sweeping on each call would mean constant pointless deletes. Once
@@ -62,8 +75,12 @@ const SWEEP_EVERY_MS = 10 * 60 * 1000;
 let lastSweep = 0;
 
 /**
- * Delete pending requests whose ride departed more than PURGE_AFTER_DAYS
- * ago. Returns the number removed, or 0 when the sweep was skipped.
+ * Delete trips whose ride departed more than PURGE_AFTER_DAYS ago.
+ * Returns the number removed, or 0 when the sweep was skipped.
+ *
+ * Every status, not just the unanswered ones it used to cover: an
+ * accepted trip from last month is as much dead weight as a request
+ * nobody answered, and the retention window is what protects both.
  *
  * Departure is a date column plus a time column, which the database
  * cannot compare in one filter, so the range is narrowed by date and the
@@ -86,20 +103,46 @@ async function purgeExpiredRequests() {
 
   const ids = (oldRides || [])
     .filter((ride) => {
-      const departure = new Date(`${ride.date}T${ride.time || "23:59"}`);
+      const departure = departureInstant(ride);
 
       // A row we cannot read a departure from is left alone rather than
       // guessed at — deleting the wrong request is not recoverable.
-      return !Number.isNaN(departure.getTime()) && departure.getTime() < cutoff;
+      return departure != null && departure < cutoff;
     })
     .map((ride) => ride.id);
+
+  // Requests whose ride has been withdrawn entirely. Nothing can be done
+  // with one — there is no route, no time and nobody to travel with — so
+  // it goes with the same sweep rather than sitting in a rider's list
+  // forever as a card with no journey on it.
+  const { data: liveRides } = await db.from("rides").select("id");
+  const existing = new Set((liveRides || []).map((r) => r.id));
+
+  const { data: allRequests } = await db.from("trip_requests").select("id, ride_id");
+
+  const orphaned = (allRequests || [])
+    .filter((r) => r.ride_id && !existing.has(r.ride_id))
+    .map((r) => r.id);
+
+  if (orphaned.length) {
+    const { data: gone } = await db
+      .from("trip_requests")
+      .delete()
+      .in("id", orphaned)
+      .select("id");
+
+    if (gone?.length) {
+      console.log(
+        `Purged ${gone.length} request${gone.length === 1 ? "" : "s"} whose ride was withdrawn.`
+      );
+    }
+  }
 
   if (!ids.length) return 0;
 
   const { data: removed, error: deleteError } = await db
     .from("trip_requests")
     .delete()
-    .eq("status", "pending")
     .in("ride_id", ids)
     .select("id");
 
@@ -109,12 +152,84 @@ async function purgeExpiredRequests() {
 
   if (count) {
     console.log(
-      `Purged ${count} unanswered request${count === 1 ? "" : "s"} ` +
+      `Purged ${count} trip${count === 1 ? "" : "s"} ` +
         `on rides that departed over ${PURGE_AFTER_DAYS} days ago.`
     );
   }
 
   return count;
+}
+
+// Where a trip stands, which decides both the order it is listed in and
+// which tab it belongs to.
+//
+// Worked out here rather than in the browser because it is the same
+// question for both sides of the app, and because the ride's trip status
+// and its departure are both already loaded here — the client would have
+// to be sent the parts and re-derive it, and would eventually derive it
+// differently.
+const RUNNING = ["to_pickup", "arrived", "started"];
+
+function tripState(request, ride) {
+  if (request.status === "declined") return "declined";
+
+  // The ride itself is gone — the driver withdrew it. There is nothing
+  // left to track, view or turn up for, so it cannot sit in Upcoming
+  // pretending to be a commute somebody has planned around.
+  if (!ride) return "finished";
+
+  const tripStatus = ride?.trip_status || "scheduled";
+
+  // Under way right now. This is the trip the rider is standing at a kerb
+  // waiting for, so nothing else has any business above it.
+  //
+  // Bounded by the same grace period the ride sweeper uses, because the
+  // driver is the only one who can mark a trip finished and plenty never
+  // do — they arrive, get on with their day, and the app is the last
+  // thing on their mind. Without the bound, one forgotten trip would sit
+  // at the top of a rider's list announcing itself as happening now for
+  // the rest of time, which is worse than useless: it is the exact spot
+  // the genuinely live trip needs.
+  if (
+    request.status === "accepted" &&
+    RUNNING.includes(tripStatus) &&
+    !departed(ride, config.rideGraceMinutes * 60000)
+  ) {
+    return "live";
+  }
+
+  // The driver has marked it done.
+  if (tripStatus === "completed") return "finished";
+
+  // It left. Either it ran without ever being marked finished, or nobody
+  // ever answered the request and the moment has passed.
+  if (departed(ride)) return "finished";
+
+  return "upcoming";
+}
+
+// Live first, then what is coming, then what is over.
+const STATE_ORDER = { live: 0, upcoming: 1, finished: 2, declined: 3 };
+
+/**
+ * The order a rider actually wants: the trip happening now at the top,
+ * then the next one they have to be somewhere for, then the past.
+ *
+ * Within what is still ahead, soonest first — the 08:00 before the 18:00.
+ * Within the past, most recent first, because a trip that ended an hour
+ * ago is the one worth looking at and last month's is not.
+ */
+function byUrgency(a, b) {
+  const rank = (STATE_ORDER[a.state] ?? 9) - (STATE_ORDER[b.state] ?? 9);
+
+  if (rank !== 0) return rank;
+
+  const at = Date.parse(a.departsAt) || 0;
+  const bt = Date.parse(b.departsAt) || 0;
+
+  const done = a.state === "finished" || a.state === "declined";
+
+  return done ? bt - at : at - bt;
 }
 
 /**
@@ -166,6 +281,9 @@ router.get("/mine", async (req, res, next) => {
         distanceMeters: ride?.distance_meters,
         durationSeconds: ride?.duration_seconds,
 
+        // The same number the board showed when the seat was requested.
+        fare: fareDetail(ride?.vehicle, ride?.distance_meters),
+
         // How far along the trip is, so an arrival is visible without
         // sitting on the live map.
         tripStatus: ride?.trip_status || "scheduled",
@@ -182,8 +300,20 @@ router.get("/mine", async (req, res, next) => {
 
         // Released only once this rider has actually been accepted.
         phone: r.status === "accepted" ? driver?.phone || null : null,
+
+        // Where this trip stands, and when it leaves as an instant. The
+        // two together are what put the live trip at the top of the list
+        // and move a finished one out of the way.
+        state: tripState(r, ride),
+        departsAt: departureIso(ride || {}),
+
+        // Said plainly rather than rendered as a card with empty fields,
+        // which is what a withdrawn ride used to look like.
+        rideMissing: !ride,
       };
     });
+
+    trips.sort(byUrgency);
 
     res.json({ trips });
   } catch (err) {
@@ -206,7 +336,9 @@ router.get("/incoming", async (req, res, next) => {
 
     const { data: myRides, error } = await db
       .from("rides")
-      .select("id, pickup, dropoff, date, time, seats")
+      .select(
+        "id, pickup, dropoff, date, time, seats, vehicle, distance_meters, trip_status"
+      )
       .eq("driver_id", req.user.id);
 
     if (error) throw error;
@@ -258,15 +390,32 @@ router.get("/incoming", async (req, res, next) => {
         id: r.id,
         status: r.status,
         createdAt: r.created_at,
-        ride,
+
+        // Carries the departure as an instant, like every other ride the
+        // API hands out. Without it the browser falls back to reading the
+        // date and time columns in its own timezone, which is a different
+        // moment from the one the campus means — so a driver travelling,
+        // or simply with a machine set to another zone, would see requests
+        // expire an hour early or an hour late.
+        ride: ride ? { ...ride, departsAt: departureIso(ride) } : null,
         position: seenPerRide[r.ride_id],
         seats,
         seatsLeft: Math.max(0, seats - taken),
         riderName: rider?.name || "Unknown rider",
 
+        // What this rider contributes, shown to the driver too — the two
+        // of them should never be looking at different numbers.
+        fare: fareDetail(ride?.vehicle, ride?.distance_meters),
+
         // Same rule in the other direction: a driver gets the number only
         // for a rider they have said yes to.
         riderPhone: r.status === "accepted" ? rider?.phone || null : null,
+
+        // How far along the trip is, and whether it is still a journey at
+        // all. The driver's way back to the live map is offered on this:
+        // a trip that is over has no map worth opening.
+        tripStatus: ride?.trip_status || "scheduled",
+        state: tripState(r, ride),
       };
     });
 
@@ -291,7 +440,7 @@ router.post("/", async (req, res, next) => {
 
     const { data: ride, error: rideError } = await db
       .from("rides")
-      .select("id, driver_id, seats")
+      .select("id, driver_id, seats, date, time")
       .eq("id", rideId)
       .maybeSingle();
 
@@ -300,6 +449,17 @@ router.post("/", async (req, res, next) => {
 
     if (ride.driver_id === req.user.id) {
       return res.status(400).json({ error: "You cannot request your own ride." });
+    }
+
+    // The board stops showing a ride the moment it leaves, but a page left
+    // open since before then still has the card on it. Asking for a seat in
+    // a car that has already gone would email the driver about a trip they
+    // cannot answer, so the answer comes from here rather than from how
+    // fresh the rider's browser happens to be.
+    if (departed(ride)) {
+      return res
+        .status(409)
+        .json({ error: "That ride has already left. Refresh to see what is still going." });
     }
 
     const { data: existing } = await db

@@ -1,6 +1,8 @@
 import React from "react";
 import RouteIllustration from "./RouteIllustration";
 import { formatDistance, formatDuration } from "./lib/geo";
+import { formatFare, fareNote } from "./lib/fare";
+import { dayLabel, requestState } from "./lib/rideState";
 import { formatClock } from "./lib/match";
 
 // The match sticker only appears once a search has actually scored the
@@ -24,35 +26,6 @@ function walkLabel(meters) {
 }
 
 /** How close this ride's route passes to the rider's actual position. */
-/**
- * Which day the ride actually leaves.
- *
- * A bare departure time reads as "today" to anyone skimming the board,
- * so a ride posted for later in the week has to say so on the card
- * itself rather than only inside the details page.
- */
-function dayLabel(date) {
-  if (!date) return null;
-
-  const when = new Date(`${date}T00:00`);
-
-  if (Number.isNaN(when.getTime())) return date;
-
-  const midnight = new Date();
-  midnight.setHours(0, 0, 0, 0);
-
-  const days = Math.round((when.getTime() - midnight.getTime()) / 86400000);
-
-  if (days === 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  if (days === -1) return "Yesterday";
-
-  return when.toLocaleDateString([], {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
-}
 
 /** The departure day, stated plainly next to the rest of the card. */
 function DayTag({ date }) {
@@ -113,42 +86,10 @@ function MatchNotes({ detail }) {
   );
 }
 
-/**
- * What the request button is allowed to say and do.
- *
- * All of it comes from the server's view of this ride — whether you drive
- * it, whether you already asked, whether it is full. Deriving it here from
- * local state would lose the answer on every reload.
- */
-function requestState(ride, pending) {
-  if (ride.isMine) {
-    return { label: "This is your ride", disabled: true, tone: "own" };
-  }
-
-  if (pending) {
-    return { label: "Sending…", disabled: true, tone: "sending" };
-  }
-
-  switch (ride.myRequestStatus) {
-    case "pending":
-      return { label: "Requested · waiting", disabled: true, tone: "pending" };
-    case "accepted":
-      return { label: "Accepted ✓", disabled: true, tone: "accepted" };
-    case "declined":
-      return { label: "Declined", disabled: true, tone: "declined" };
-    default:
-      break;
-  }
-
-  if (ride.full) {
-    return { label: "Ride is full", disabled: true, tone: "full" };
-  }
-
-  return { label: "Request this ride", disabled: false, tone: "open" };
-}
 
 export default function RideCard({ ride, onRequest, showMore = false, pending = false }) {
   const distance = formatDistance(ride.distanceMeters);
+  const fare = formatFare(ride.fare);
   const duration = formatDuration(ride.durationSeconds);
 
   const request = requestState(ride, pending);
@@ -214,6 +155,15 @@ export default function RideCard({ ride, onRequest, showMore = false, pending = 
           </div>
         )}
       </div>
+
+      {/* The number a rider actually decides on, so it is not buried in
+          the grid above with the ones they merely glance at. */}
+      {fare && (
+        <p className="ride-fare">
+          <strong>{fare}</strong>
+          <span>{fareNote(ride.fare)}</span>
+        </p>
+      )}
 
       <button
         className={`request-button request-button--${request.tone}`}

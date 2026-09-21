@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { loadGoogleMaps, createHtmlMarker, mapId } from "./lib/maps";
 import { api } from "./lib/api";
 import { computeRoute, formatDistance, formatDuration } from "./lib/geo";
+import { formatFare, formatTotal, settleNote } from "./lib/fare";
 import { vehicleIconSvg, personIconSvg, routeArrowSvg } from "./lib/vehicleIcons";
 import VehicleIcon from "./VehicleIcon";
 import TripChat from "./TripChat";
@@ -1071,6 +1072,58 @@ export default function LiveRide({
             </p>
           )}
 
+          {/* Settling up, at the only moment either of them cares about
+              it: the trip is over and one of them owes the other.
+
+              The total comes first and the halves under it, because the
+              total is the thing that explains the halves — a rider who
+              sees only "₹20" is being told a price, while a rider who
+              sees "the journey cost ₹40, you carry half" is being shown
+              an arithmetic they can check. The driver paid for all of it
+              up front, so what actually has to happen is one of them
+              handing over one half, and each side is told which. */}
+          {finished && ride.fare && (
+            <section className="settle-up">
+              <span className="eyebrow">TRIP COMPLETE</span>
+
+              <div className="settle-total">
+                <small>WHAT THIS JOURNEY COST</small>
+                <strong>{formatTotal(ride.fare)}</strong>
+                <span>
+                  {formatDistance(ride.distanceMeters)} · ₹{ride.fare.perKm}/km ·{" "}
+                  {ride.fare.classLabel.toLowerCase()}
+                </span>
+              </div>
+
+              <div className="settle-halves">
+                <div className={isDriver ? "" : "is-you"}>
+                  <small>{isDriver ? "YOUR HALF" : "YOUR HALF"}</small>
+                  <strong>{formatFare(ride.fare)}</strong>
+                </div>
+
+                <div className="settle-divider" aria-hidden="true">
+                  ÷
+                </div>
+
+                <div className={isDriver ? "is-you" : ""}>
+                  <small>{isDriver ? "RIDER'S HALF" : "DRIVER'S HALF"}</small>
+                  <strong>{formatFare(ride.fare)}</strong>
+                </div>
+              </div>
+
+              <p className="settle-action">
+                {settleNote(ride.fare, isDriver ? "driver" : "rider")}
+              </p>
+
+              {ride.fare.atMinimum && (
+                <p className="settle-note">
+                  Short trip — the ₹{ride.fare.minimum} minimum applies. The
+                  driver still came out of their way and waited.
+                </p>
+              )}
+            </section>
+          )}
+
           {/* Two stops on one line, in the order they happen. The marker
               for the leg under way is filled; the one already behind is
               not — the same reading as the map. */}
@@ -1088,8 +1141,10 @@ export default function LiveRide({
 
           <div className="live-stats">
             <div>
-              <small>ROUTE</small>
-              <strong>{formatDistance(ride.distanceMeters) || "—"}</strong>
+              <small>{ride.fare ? "FARE" : "ROUTE"}</small>
+              <strong>
+                {formatFare(ride.fare) || formatDistance(ride.distanceMeters) || "—"}
+              </strong>
             </div>
 
             <div>

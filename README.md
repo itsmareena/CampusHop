@@ -75,6 +75,10 @@ Then open http://localhost:5173.
 | `ORS_API_KEY` | OpenRouteService key — never sent to the browser |
 | `GOOGLE_MAPS_KEY` | Places + Geocoding. Server-side only |
 | `CITY_LAT`, `CITY_LON` | Where to bias address search (default Bengaluru) |
+| `CAMPUS_TIMEZONE` | The campus's own clock, which decides when a ride has departed (default `Asia/Kolkata`) |
+| `RIDE_GRACE_MINUTES` | How long a departed ride nobody joined is kept before deletion (default 180) |
+| `RIDE_SWEEP_MINUTES` | How often to sweep (default 15) |
+| `TRIP_HISTORY_DAYS` | How long a finished trip stays in History before deletion (default 7) |
 
 `client/.env`
 
@@ -99,6 +103,7 @@ Run each file in `db/` once, in order, in the Supabase SQL editor:
 | `005_live_tracking.sql` | The driver's live position, and how far along the trip is |
 | `006_profile_email.sql` | The address trip mail is sent to |
 | `007_messages_and_reports.sql` | In-app messages on a trip, and reporting one that went wrong |
+| `008_ride_expiry.sql` | The departure as a real instant, and the sweep that clears out rides that are over |
 
 `db/backfill-routes.mjs` fills in routes for any rides created before
 coordinates were stored. It is a dry run unless given `--apply`.
@@ -113,7 +118,7 @@ Everything except `/api/health` requires `Authorization: Bearer <token>`.
 | GET | `/api/profile` | The caller, resolved from their token |
 | POST | `/api/profile` | Create the profile row after sign-up |
 | PATCH | `/api/profile` | Update your own profile only |
-| GET | `/api/rides` | Search. Ranks and filters server-side |
+| GET | `/api/rides` | Search. Ranks and filters server-side; rides that have departed are never returned |
 | GET | `/api/rides/:id` | One ride |
 | POST | `/api/rides` | Post a ride; the server computes the route |
 | DELETE | `/api/rides/:id` | Driver only |
@@ -192,6 +197,173 @@ tick, and the leg is only re-routed once the vehicle has genuinely moved on
 — a trip costs a handful of routing calls, not one per fix. A fix too old
 to trust is shown greyed rather than hidden: a marker frozen in the wrong
 street with no explanation is worse than one openly marked as stale.
+
+## When a ride is over
+
+A ride is on the board until the moment it departs, and not one minute
+longer. Before this, nothing in the system knew when a ride had ended —
+the board was every row in the table, so a commute posted for last
+Tuesday sat on "closest first" forever and could still be requested.
+
+The reason it was awkward to fix is that a departure was only ever stored
+as the two halves a person types: a `date` and a `time`, in the driver's
+own wall clock. Neither can be compared against `now()`, neither can be
+indexed as a moment in time, and every layer that tried got its own
+chance to answer differently. So the departure is now stored as a real
+instant, `departs_at`, filled in by a database trigger from whatever date
+and time end up on the row — derived, never supplied, so it cannot
+disagree with what the driver picked.
+
+Turning a wall clock into an instant needs a timezone, and a single
+campus is the rare case where one fixed answer is honest. It is set in
+two places that must agree: `campushop_timezone()` in the migration and
+`CAMPUS_TIMEZONE` in the server's environment.
+
+Three layers apply the same rule, and none of them is only cosmetic:
+
+| Layer | What it does |
+| --- | --- |
+| Database | `departs_at`, indexed; the `active_rides` view; `delete_expired_rides()` |
+| API | Filters `GET /api/rides` in the query, refuses a seat on a departed ride, refuses to post one into the past |
+| Browser | Drops a ride from the board the moment it departs, without waiting for a poll |
+
+The browser's pass is the one that looks redundant and is not. A board
+fetched at 07:59 still holds the 08:00 ride at 08:01, and a tab can sit
+open across the whole of it — so the Find page re-checks itself against
+the clock every thirty seconds rather than trusting a list that was true
+when it arrived.
+
+**Off the board and deleted are different things.** A ride leaves the
+board at its departure time, whatever state it is in. It is only actually
+deleted when it left more than the grace period ago and nobody ever asked
+for a seat on it — posted, ignored, and now over, which is the
+overwhelming majority of what piles up.
+
+How far along the trip got is deliberately not part of that. Protecting a
+trip in progress is the grace period's job; hours after departure, a ride
+nobody ever requested has no passenger left to protect, and making it a
+condition only kept every ride whose driver once pressed "start".
+
+One request is enough to keep a ride forever, whatever became of it. An
+accepted one is a trip somebody took, which MyTrips lists, a safety
+report can point at, and the driver's reliability count is built from. A
+declined one is still the rider's record of having asked. An unanswered
+one is what the driver's queue shows as missed. All of them read the ride
+row for where the trip was going, so deleting it would not tidy the table
+— it would blank out screens that are still in use.
+
+The sweep runs in the database on `pg_cron` where it is enabled, and from
+the API server on boot and every fifteen minutes regardless. On boot
+because the interesting case is a server that was off overnight, by which
+time everything posted for yesterday is over.
+
+### Getting back to it
+
+The live map is not a screen you visit once. A driver closes it at a red
+light, a rider closes it to check the address they were sent, and both of
+them need it back immediately — so a trip that is actually under way is
+reachable in one tap from wherever each side lives.
+
+For the rider that is My Trips, which puts the running trip above the
+tabs and above every other card, because a journey happening now outranks
+one next Tuesday. For the driver it is the request queue, where an
+accepted request carries the way back into the same map. Neither had one
+before: accepting a request opened the map once, and closing it was the
+end of the matter.
+
+My Trips is ordered by what the rider has to do next — live first, then
+soonest, then the past — and that order is decided by the API, alongside
+the state each trip is in, so the two halves cannot disagree about which
+trip matters. A finished trip leaves Upcoming on its own and lands in
+History, where it stays for a week before it is deleted.
+
+The week is what "Report a problem" runs on. Most trouble is only obvious
+once a trip is over and the map has been closed, so the rider who gets
+home and realises something was wrong still has the trip to point at.
+Deleting it the moment the driver marks it complete would hand exactly
+that person an empty screen. Set `TRIP_HISTORY_DAYS` to change it.
+
+A ride the driver withdraws takes its requests with it, rather than
+leaving riders holding a seat on a journey with no route, no time and
+nobody driving it.
+
+## What a seat costs
+
+The driver does not set the price, and there is no column to store one in.
+The cost is derived, every time it is asked for, from the route the server
+measured when the ride was posted — so a ride cannot carry a number its
+driver chose, because there is nowhere for that number to live.
+
+That is the whole point of doing it this way. A driver who can name their
+own price can undercut, overcharge, or quietly turn a campus lift into a
+business, and a rider comparing two rides down the same road has to work
+out which of them is being reasonable. Derived, every ride of the same
+length in the same class of vehicle costs the same, and the number on the
+board cannot be argued with by either side.
+
+**The journey has a cost, and the two people in the vehicle split it.**
+That is the entire model. The rate is what the trip costs to make per
+kilometre — not what a rider is charged — and the rider carries half of
+it.
+
+| Class | Vehicles | Journey costs | Each person pays | Minimum each |
+| --- | --- | --- | --- | --- |
+| Two-wheeler | bike, scooty | ₹6.00/km | ₹3.00/km | ₹10 |
+| Car | car | ₹10.00/km | ₹5.00/km | ₹15 |
+
+So a 6.8 km ride on a scooty cost ₹40 to make, and each of them carries
+₹20 of it. The same trip by car cost ₹68, and they carry ₹34 each.
+
+A bike and a scooty are deliberately one class: they cost about the same
+to run and carry the same one pillion, and splitting them would only
+invite a driver to relabel their vehicle for a better rate. An
+unrecognised or missing vehicle takes the cheaper class — a guess that
+overcharges is worse than one that does not.
+
+### Why those rates
+
+They are round numbers sitting at or under what the vehicle actually
+costs to run, checked against Bengaluru prices with petrol at
+₹110.93/litre:
+
+| | Fuel | Wear | Depreciation, insurance | Real cost |
+| --- | --- | --- | --- | --- |
+| Two-wheeler (~45 km/l) | ₹2.50 | ₹1.00 | ₹1.75 | ~₹5.25/km |
+| Small car (~16 km/l) | ₹6.90 | ₹2.50 | ₹7.00 | ~₹16.40/km |
+
+The car rate is well under its real cost and the two-wheeler rate is
+close to it. Neither is above it, and that is the line that matters:
+Karnataka's transport department distinguishes a private vehicle sharing
+its costs from a private vehicle running as a taxi, and has acted on that
+distinction. A rate that cannot exceed what the journey actually cost is
+on the right side of it. For comparison, an auto over the same 6.8 km is
+about ₹122 at the government meter — roughly double the car and three
+times the scooty.
+
+### The minimum, and the rounding
+
+Both exist for the trip too short for distance to mean anything: the
+driver still came out of their way and waited at a kerb, which no per-km
+rate captures. Both are deliberately small.
+
+The price used to round to ₹5, on the reasoning that it should be
+settleable in cash without hunting for change. On a board where trips run
+2–8 km that rounding, stacked on the minimum, flattened almost every
+two-wheeler ride to the same ₹10 — a 2 km hop and a 6 km cross-town ride
+came to exactly the same number, and the per-km rate did no work at all.
+Distance is the thing being shared here, so it now rounds to the rupee
+and the minimum binds only below about 3 km.
+
+The working is in `server/src/pricing.js`, and every screen that shows a
+price also shows the rate behind it. When a trip finishes, the live screen
+shows what the whole journey cost with both halves under it — a rider who
+sees only their ₹20 is being told a price, while one who sees "the journey
+cost ₹40, you carry half" is being shown an arithmetic they can check. The
+driver paid for all of it up front, so each side is told which half is
+theirs and who hands what to whom.
+
+A ride posted before routes were stored has no measured length and so no
+price. Those show a dash rather than an invented number.
 
 ## Messages and reports
 

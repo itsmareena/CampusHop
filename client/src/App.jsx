@@ -17,9 +17,11 @@ import IncomingRequests from "./IncomingRequests";
 import RequestAlerts from "./RequestAlerts";
 import VehiclePrompt from "./VehiclePrompt";
 import LiveRide from "./LiveRide";
+import NearbyRides from "./NearbyRides";
 import RequestWaiting from "./RequestWaiting";
 import ProfilePage from "./ProfilePage";
 import { useIncomingRequests } from "./lib/useIncomingRequests";
+import { upcoming } from "./lib/rideState";
 import { needsDetails } from "./lib/vehicles";
 
 // Cycled so a board of rides keeps the pinned-note look.
@@ -160,7 +162,15 @@ function Dashboard({ user, onLogout, onUserChange }) {
 
   const loadRides = useCallback(async () => {
     try {
-      const { rides: rows } = await api.rides.list();
+      const { rides: board } = await api.rides.list();
+
+      // The API already ends the board at each ride's departure, so this
+      // takes out only what expired since the response was written — and,
+      // more to the point, what expires while this tab sits open between
+      // polls. Filtered here rather than on each screen so every one of
+      // them is working from the same list: the dashboard board, the
+      // nearby strip and the Find page all read this.
+      const rows = upcoming(board);
 
       // Publishing a new array on every tick would restart the Find page's
       // own fetch each time, so the board is only replaced when something
@@ -549,6 +559,21 @@ function Dashboard({ user, onLogout, onUserChange }) {
     onAnswer={incoming.answer}
     onAccepted={(request) =>
       openLive(request.ride?.id, "driver", request.riderName, request.id)
+    }
+    // The same journey, reopened later. Accepting opens the live map
+    // once; this is how the driver gets back to it afterwards.
+    onOpenLive={(request) =>
+      openLive(request.ride?.id, "driver", request.riderName, request.id)
+    }
+    nearby={
+      // The same board the Find tab uses, and the same request flow: asking
+      // from here opens the same waiting screen as asking from there.
+      <NearbyRides
+        rides={rides}
+        onRequest={requestRide}
+        pendingRideId={pendingRideId}
+        onBrowseAll={() => setActiveTab("find")}
+      />
     }
   />
 )}
